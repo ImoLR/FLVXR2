@@ -84,6 +84,9 @@ function fullTime(ms: number) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** Plan 315: 「节点名带入口名」 off. */
+const FIXED_NAMES = "固定（不带入口名）";
+
 function pullText(d: SubAdminDetail) {
   if (!d.lastPullAt) return "从未拉取";
 
@@ -172,6 +175,9 @@ export function SubAdminDetailDialog({
           <ExpandField label="创建时间">
             {fullTime(data.createdTime)}
           </ExpandField>
+          {data.entryNames === false && (
+            <ExpandField label="节点名">{FIXED_NAMES}</ExpandField>
+          )}
         </>
       ) : (
         (
@@ -179,6 +185,10 @@ export function SubAdminDetailDialog({
             ["格式", subFormatLabel[data.format]],
             ["最近拉取", pullText(data)],
             ["创建时间", fullTime(data.createdTime)],
+            // Plan 315: shown only when 「节点名带入口名」 is off.
+            ...(data.entryNames === false
+              ? ([["节点名", FIXED_NAMES]] as const)
+              : []),
           ] as const
         ).map(([label, value]) => (
           <div key={label} className="min-w-0">

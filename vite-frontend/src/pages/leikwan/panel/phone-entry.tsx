@@ -276,7 +276,7 @@ export function usePhoneRule(r: LeiKwanRule): PhoneRuleView | null {
         ? "手机本地的预热池开着"
         : s?.warm.on
           ? "这条转发的落地会提前断开空闲连接，手机上的预热自动关了"
-          : "手机本地的预热池关着（入口机 → 手机本地 里打开）",
+          : "手机本地的预热池关着（授权 → 我的入口 → 快捷设置 里打开）",
     },
   };
 }
@@ -443,15 +443,20 @@ function useAct() {
 function ConnectButtons({
   s,
   size = "sm",
+  full = false,
 }: {
   s: PhoneState | null;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
+  /** Plan 315: the big full-width button of 我的入口 */
+  full?: boolean;
 }) {
   const { busy, act } = useAct();
+  const cls = full ? "h-11 w-full text-[15px] font-semibold" : undefined;
 
   if (phoneRunning(s))
     return (
       <Button
+        className={cls}
         color="danger"
         data-phone-disconnect=""
         isLoading={busy === "disconnect"}
@@ -465,6 +470,7 @@ function ConnectButtons({
 
   return (
     <Button
+      className={cls}
       color="success"
       data-phone-connect=""
       isDisabled={!s?.credentials.set}
@@ -473,12 +479,12 @@ function ConnectButtons({
       title={
         s?.credentials.set ? undefined : "先填商家账号（只存在这台手机上）"
       }
-      variant="flat"
+      variant={full ? "solid" : "flat"}
       onPress={() =>
         void act("connect", () => appStateCall("connect", {}, 30000))
       }
     >
-      连接
+      {full && !s?.credentials.set ? "连接（先填商家账号）" : "连接"}
     </Button>
   );
 }
@@ -648,128 +654,682 @@ function BypassTip() {
   );
 }
 
-function stateLine(s: PhoneState | null) {
-  const sum = phoneSummary(s);
+// ---- 授权 → 我的入口: setup + connect (plan 315) ----
 
-  if (s?.connection === "failed")
-    return (
-      <span className="text-red-700 dark:text-red-300">
-        连接失败 · {s.error || "原因看运行日志"}
-      </span>
-    );
-  if (s?.connection === "connecting") return <span>{sum.text}</span>;
+// Plan 315 (user 11-26): everything about connecting 手机本地 lives in 授权 →
+// 我的入口 (tips, checks, 快捷设置, 连接 and its stages); 入口机 → 手机本地
+// only shows information. Flags kept in the WebView's localStorage (this
+// phone only): the first good connection, and the manual 分应用代理 tick.
+const ONCE_KEY = "flvx_phone_ok_once";
+const BYPASS_KEY = "flvx_phone_bypass_ok";
 
-  return <span>{sum.text}</span>;
+const lsOn = (k: string) => {
+  try {
+    return localStorage.getItem(k) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const lsSet = (k: string, on: boolean) => {
+  try {
+    if (on) localStorage.setItem(k, "1");
+    else localStorage.removeItem(k);
+  } catch {
+    /* storage off: the flag lives for this page only */
+  }
+};
+
+/** This phone has connected successfully at least once (WebView storage). */
+function useConnectedOnce(s: PhoneState | null) {
+  const good = phoneConnected(s) && (s?.ready || 0) > 0;
+  const [once, setOnce] = useState(() => lsOn(ONCE_KEY));
+
+  useEffect(() => {
+    if (good && !once) {
+      lsSet(ONCE_KEY, true);
+      setOnce(true);
+    }
+  }, [good, once]);
+
+  return once || good;
 }
 
-/**
- * The 授权 area's connect panel while 手机本地 is this phone's entry:
- * state, 连接 / 断开, 「打开 App 自动连接」, the old App's three tip blocks
- * and the short notes.
- */
-export function PhoneConnectPanel({
-  rules,
-  usage,
-  onDetails,
+/** One check row: ✓ / ⚠ (/ · unknown), what, its state, the action. */
+function CheckRow({
+  ok,
+  warn = !ok,
+  label,
+  value,
+  action,
+  note,
+  check,
 }: {
-  rules: LeiKwanRule[];
-  usage?: LeiKwanUsageView | null;
-  onDetails: () => void;
+  ok: boolean;
+  warn?: boolean;
+  label: string;
+  value?: ReactNode;
+  action?: ReactNode;
+  note?: ReactNode;
+  check: string;
 }) {
-  const ctx = usePhoneCtx();
-  const s = ctx?.state || null;
-  const sum = phoneSummary(s);
-  const connected = phoneConnected(s);
-  const [tips, setTips] = useState<boolean | null>(null);
-  const tipsOpen = tips ?? !connected;
-  const dev = usage?.devices;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2"
+      data-phone-check={check}
+      data-phone-check-ok={ok ? "" : undefined}
+    >
+      <span
+        aria-label={ok ? "已好" : warn ? "要处理" : "未知"}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+          ok
+            ? "bg-green-500/15 text-green-700 dark:bg-green-400/20 dark:text-green-300"
+            : warn
+              ? "bg-red-500/15 text-red-700 dark:bg-red-400/20 dark:text-red-300"
+              : "bg-slate-500/15 text-slate-600 dark:bg-slate-400/20 dark:text-slate-300"
+        }`}
+        role="img"
+      >
+        {ok ? "✓" : warn ? "⚠" : "·"}
+      </span>
+      <span className="whitespace-nowrap text-[13px] font-medium">{label}</span>
+      {value && <span className="text-xs text-default-500">{value}</span>}
+      <span className="flex-1" />
+      {action}
+      {note && (
+        <p className="w-full pl-7 text-xs leading-5 text-default-500">{note}</p>
+      )}
+    </div>
+  );
+}
 
-  if (!ctx?.local) return null;
+/** The old App's connect steps (BridgeService stages, panel flavor labels). */
+const STEPS = ["读取账号", "连接商家", "等待商家授权", "启动入口"];
+
+const elapsedText = (ms: number) => {
+  const v = Math.max(0, Math.floor(ms / 1000));
+
+  return v < 60
+    ? `已等待 ${v} 秒`
+    : `已等待 ${Math.floor(v / 60)} 分 ${String(v % 60).padStart(2, "0")} 秒`;
+};
+
+/** 「3/6 已就绪 · 其余 3 条仍在连接中，请稍候…」 (old App wording). */
+function readyLine(s: PhoneState) {
+  const failed = s.forwards.filter((f) => f.state === "failed").length;
+  const pending = Math.max(0, s.total - s.ready - failed);
+  const head = `${s.ready}/${s.total} 已就绪`;
+
+  if (!s.total || s.ready >= s.total) return { line: head, line2: "" };
+
+  return {
+    line:
+      pending > 0
+        ? `${head} · ${s.ready === 0 && failed === 0 ? "都还" : `其余 ${pending} 条`}仍在连接中，请稍候…`
+        : `${head} · 其余 ${failed} 条没连上，看下面的专线状态`,
+    line2:
+      pending > 0 && failed > 0
+        ? `另有 ${failed} 条没连上，看下面的专线状态`
+        : "",
+  };
+}
+
+const boxTone = {
+  amber:
+    "bg-amber-500/10 text-amber-800 dark:bg-amber-400/10 dark:text-amber-200",
+  green:
+    "bg-green-500/10 text-green-800 dark:bg-green-400/10 dark:text-green-200",
+  red: "bg-red-500/10 text-red-800 dark:bg-red-400/10 dark:text-red-200",
+  slate:
+    "bg-slate-500/10 text-slate-700 dark:bg-slate-400/10 dark:text-slate-200",
+} as const;
+
+/**
+ * The state block under 连接 (like the old App's connect box): 正在连接 + the
+ * four steps with the waiting time, 已连接 x/y, or the failure reason.
+ */
+function ConnectState({ s }: { s: PhoneState | null }) {
+  const connecting = s?.connection === "connecting";
+  const stageIdx = (() => {
+    if (!s) return 0;
+    const i = STEPS.indexOf(s.stage || "");
+
+    return i >= 0 ? i : s.total > 0 ? 3 : 0;
+  })();
+  const [since, setSince] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    setSince(Date.now());
+  }, [stageIdx, connecting]);
+  useEffect(() => {
+    if (!connecting) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+
+    return () => window.clearInterval(t);
+  }, [connecting]);
+
+  if (!s) return null;
+  if (s.connection === "idle")
+    return (
+      <p className="text-xs text-default-500" data-phone-state="idle">
+        {s.autoConnectBlocked
+          ? `未连接 · ${s.autoConnectBlocked}`
+          : "未连接 · 点上面的「连接」开始"}
+      </p>
+    );
+  if (s.connection === "disconnecting")
+    return (
+      <div
+        className={`rounded-xl px-3.5 py-2.5 text-[13px] font-semibold ${boxTone.slate}`}
+        data-phone-state="disconnecting"
+      >
+        正在断开…
+      </div>
+    );
+  if (s.connection === "failed")
+    return (
+      <div
+        className={`space-y-1 rounded-xl px-3.5 py-2.5 ${boxTone.red}`}
+        data-phone-state="failed"
+      >
+        <div className="text-[13px] font-semibold">连接失败</div>
+        <p className="select-text text-xs leading-5">
+          {s.error || "原因看运行日志（下面「更多」）"}
+          {s.errorCode && (
+            <span className="ml-1 font-mono text-[11px] opacity-70">
+              ({s.errorCode})
+            </span>
+          )}
+        </p>
+      </div>
+    );
+  const lines = readyLine(s);
+
+  if (connecting)
+    return (
+      <div
+        className={`space-y-1.5 rounded-xl px-3.5 py-2.5 ${boxTone.amber}`}
+        data-phone-state="connecting"
+      >
+        <div className="text-[13px] font-semibold">正在连接</div>
+        <p className="text-xs">正在读取账户并申请线路…</p>
+        <ol className="space-y-1 pt-1">
+          {STEPS.map((name, i) => {
+            const state =
+              i < stageIdx ? "done" : i === stageIdx ? "now" : "wait";
+
+            return (
+              <li
+                key={name}
+                aria-label={`${name}：${state === "done" ? "已完成" : state === "now" ? "进行中" : "等待"}`}
+                className="flex min-h-5 items-center gap-2 text-[12.5px]"
+                data-phone-step={state}
+              >
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  {state === "done" ? (
+                    <span className="text-[12px] font-bold text-green-700 dark:text-green-300">
+                      ✓
+                    </span>
+                  ) : state === "now" ? (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  ) : (
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400/70" />
+                  )}
+                </span>
+                <span
+                  className={`min-w-0 flex-1 ${state === "now" ? "font-semibold text-foreground" : state === "wait" ? "opacity-60" : ""}`}
+                >
+                  {name}
+                </span>
+                {state === "now" && (
+                  <span className="shrink-0 text-xs text-default-500">
+                    {elapsedText(now - since)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+        {s.total > 0 && (
+          <p className="pl-6 text-[12.5px] font-medium">{lines.line}</p>
+        )}
+      </div>
+    );
+  const all = s.connection === "connected" && s.ready >= s.total;
 
   return (
     <div
-      className="space-y-2.5 rounded-xl border border-violet-500/30 bg-violet-500/[0.05] p-3 dark:bg-violet-400/[0.07]"
-      data-phone-connect-panel=""
-      id="phone-connect-panel"
+      className={`space-y-1 rounded-xl px-3.5 py-2.5 ${all ? boxTone.green : boxTone.amber}`}
+      data-phone-state={all ? "connected" : "partial"}
     >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Smartphone
-          className="text-violet-600 dark:text-violet-300"
-          size={15}
-        />
-        <span className="text-sm font-semibold">手机本地</span>
-        <Pill tone={sum.tone}>{sum.text}</Pill>
-        {s?.stage && s.connection === "connecting" && (
-          <Pill tone="amber">{s.stage}</Pill>
+      <div className="flex flex-wrap items-baseline gap-x-2 text-[13px] font-semibold">
+        {all ? "已连接" : "部分已连接"}
+        {s.startedAt && (
+          <span className="text-xs font-normal text-default-500">
+            {fmtTime(s.startedAt)} 起 台湾
+          </span>
         )}
-        <span className="flex-1" />
-        <button
-          className="text-xs font-medium text-primary"
-          type="button"
-          onClick={onDetails}
-        >
-          详情
-        </button>
       </div>
-      <div className="text-xs text-default-600" data-phone-state-line="">
-        {stateLine(s)}
-      </div>
-      {s && !s.credentials.set && (
-        <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-          先填商家的客户端 ID 和 Agent
-          Token：只存在这台手机上（系统加密），不会发给面板。
+      <p className="text-[12.5px] font-medium">{lines.line}</p>
+      {lines.line2 && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          {lines.line2}
+        </p>
+      )}
+      {s.error && (
+        <p className="text-xs text-red-700 dark:text-red-300">{s.error}</p>
+      )}
+    </div>
+  );
+}
+
+/** 专线状态: one line per forward the phone runs (moved from 入口机). */
+function PhoneForwardList({
+  s,
+  rules,
+}: {
+  s: PhoneState | null;
+  rules: LeiKwanRule[];
+}) {
+  const ruleOf = (fid: number, port: number) =>
+    rules.find((r) =>
+      r.forwardId ? r.forwardId === fid : r.listenPort === port,
+    );
+
+  return (
+    <div className="space-y-1.5" data-phone-forwards="">
+      <div className="text-xs font-semibold text-default-600">专线状态</div>
+      {(s?.forwards || []).map((f) => {
+        const r = ruleOf(f.forwardId, f.localPort);
+
+        return (
+          <div
+            key={f.forwardId}
+            className="space-y-0.5 rounded-lg border border-divider px-2.5 py-1.5"
+            data-phone-forward={f.forwardId}
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 text-[13px] font-medium [word-break:keep-all]">
+                {r ? r.name : f.name || `利群 #${f.forwardId}`}
+              </span>
+              <Pill
+                tone={
+                  f.state === "ready"
+                    ? "green"
+                    : f.state === "failed"
+                      ? "red"
+                      : f.state === "connecting"
+                        ? "amber"
+                        : "slate"
+                }
+              >
+                {f.state === "ready"
+                  ? "就绪"
+                  : f.state === "failed"
+                    ? "失败"
+                    : f.state === "connecting"
+                      ? "连接中"
+                      : "未连接"}
+              </Pill>
+              {f.protect === "logswitch" && f.state === "ready" && (
+                <Pill
+                  title={
+                    f.switched
+                      ? "日志快切：新连接正走备线"
+                      : "日志快切待命：出故障时新连接改走备线"
+                  }
+                  tone={f.switched ? "amber" : "green"}
+                >
+                  {f.switched ? "正走备线" : "快切"}
+                </Pill>
+              )}
+            </div>
+            <div className="font-mono text-xs text-default-500">
+              127.0.0.1:{f.localPort}
+              {r?.lineName && (
+                <span className="ml-1.5 font-sans">{r.lineName}</span>
+              )}
+            </div>
+            {f.reason && f.state !== "ready" && (
+              <div className="text-xs text-default-500">{f.reason}</div>
+            )}
+          </div>
+        );
+      })}
+      {s && s.forwards.length === 0 && (
+        <p className="text-xs text-default-500">
+          连接一次后，这里列出商家账号的每条转发和本机端口。
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** 更多: 运行日志 (查看 / 复制 / 分享) + 换面板地址. */
+function PhoneMore({ s }: { s: PhoneState | null }) {
+  const ctx = usePhoneCtx();
+  const { act } = useAct();
+  const [open, setOpen] = useState(false);
+  const [log, setLog] = useState<PhoneLog | null>(null);
+
+  return (
+    <div className="border-t border-divider/70 pt-2" data-phone-more="">
+      <button
+        aria-expanded={open}
+        className="text-xs font-medium text-primary"
+        data-phone-more-toggle=""
+        type="button"
+        onClick={() => setOpen(!open)}
+      >
+        更多 {open ? "▴" : "▾"}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-default-600">
+              运行日志
+            </span>
+            <span className="text-xs text-default-500">
+              {fmtBytes(s?.logBytes || 0)} · 最多 2 MB
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              color="primary"
+              size="sm"
+              variant="flat"
+              onPress={async () => {
+                if (log) {
+                  setLog(null);
+
+                  return;
+                }
+                setLog(
+                  await run(appCall<PhoneLog>("getLog", { maxChars: 20000 })),
+                );
+              }}
+            >
+              {log ? "收起" : "查看"}
+            </Button>
+            <Button
+              color="secondary"
+              size="sm"
+              variant="flat"
+              onPress={() =>
+                void act("copy", () => appCall("copyLog"), "运行日志已复制")
+              }
+            >
+              复制
+            </Button>
+            <Button
+              color="secondary"
+              size="sm"
+              variant="flat"
+              onPress={() => void act("share", () => appCall("shareLog"))}
+            >
+              分享
+            </Button>
+          </div>
+          {log && (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-default-100 p-2 font-mono text-[11px] leading-4 text-default-700 dark:bg-default-100/50">
+              {log.truncated ? "…（只显示最后一段）\n" : ""}
+              {log.text}
+            </pre>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-default-500">
+            {ctx?.info && <span>{ctx.info.device.name}</span>}
+            <button
+              className="ml-auto text-xs text-default-500 underline-offset-2 hover:underline"
+              type="button"
+              onClick={() => void run(appCall("changePanel"))}
+            >
+              换面板地址
+            </button>
+          </div>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <ConnectButtons s={s} />
-        {s && !s.credentials.set && (
-          <Button
-            color="warning"
-            size="sm"
-            variant="flat"
-            onPress={() => void run(appCall("editCredentials", {}, 600000))}
-          >
-            填写商家账号
-          </Button>
-        )}
-        <AutoConnectSwitch s={s} />
-      </div>
-      <p className="text-[11px] leading-4 text-default-500">{autoNote(s)}</p>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-default-600">
-          用之前看一下
-        </span>
-        <button
-          className="text-xs text-primary"
-          data-phone-tips-toggle=""
-          type="button"
-          onClick={() => setTips(!tipsOpen)}
-        >
-          {tipsOpen ? "收起" : "展开"}
-        </button>
-        {!tipsOpen && !s?.battery.unrestricted && (
-          <Pill tone="red">电池没设成无限制</Pill>
-        )}
-      </div>
-      {tipsOpen && (
+    </div>
+  );
+}
+
+/**
+ * Plan 315: the setup + connect panel under 授权 → 我的入口 while this phone's
+ * entry is 手机本地 — first-time tips, the checks (电池 / 商家账号 / 分应用代理 /
+ * 在线设备) with their actions, 快捷设置, 连接 / 断开 + the stage block, 专线状态,
+ * 更多 (运行日志 / 换面板地址) and the short notes.
+ */
+export function PhoneSetupPanel({
+  rules,
+  usage,
+}: {
+  rules: LeiKwanRule[];
+  usage?: LeiKwanUsageView | null;
+}) {
+  const ctx = usePhoneCtx();
+  const s = ctx?.state || null;
+  const { busy, act } = useAct();
+  const once = useConnectedOnce(s);
+  const [tips, setTips] = useState<boolean | null>(null);
+  const tipsOpen = tips ?? !once;
+  const [bypass, setBypass] = useState(() => lsOn(BYPASS_KEY));
+  const dev = usage?.devices;
+  const full = !!dev && dev.limit > 0 && dev.count >= dev.limit;
+  const batteryOk = !!s?.battery.unrestricted;
+  const credOk = !!s?.credentials.set;
+  const failing = !batteryOk || !credOk || full;
+
+  if (!ctx?.local) return null;
+  const setBypassOk = (on: boolean) => {
+    lsSet(BYPASS_KEY, on);
+    setBypass(on);
+  };
+
+  return (
+    <div
+      className="space-y-3"
+      data-phone-connect-panel=""
+      data-phone-first={once ? undefined : ""}
+      id="phone-connect-panel"
+    >
+      {tipsOpen ? (
         <div className="space-y-2" data-phone-tips="">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-default-600">
+              用之前看一下
+            </span>
+            {once && (
+              <button
+                className="text-xs text-primary"
+                data-phone-tips-toggle=""
+                type="button"
+                onClick={() => setTips(false)}
+              >
+                收起
+              </button>
+            )}
+          </div>
           <BatteryTip s={s} />
           <NodeTip rules={rules} s={s} />
           <BypassTip />
         </div>
+      ) : (
+        <button
+          className="flex w-full items-center gap-2 text-left"
+          data-phone-tips-toggle=""
+          type="button"
+          onClick={() => setTips(true)}
+        >
+          <span className="text-xs font-semibold text-default-600">
+            用之前看一下
+          </span>
+          <span className="text-xs text-primary">展开</span>
+          {failing && (
+            <Pill tone="red">
+              {!batteryOk
+                ? "电池没设成无限制"
+                : !credOk
+                  ? "还没填商家账号"
+                  : "商家设备名额满了"}
+            </Pill>
+          )}
+        </button>
       )}
+
+      <div
+        className="divide-y divide-divider/60 rounded-xl border border-divider px-3"
+        data-phone-checks=""
+      >
+        <CheckRow
+          action={
+            !batteryOk && (
+              <Button
+                color="warning"
+                isLoading={busy === "battery"}
+                size="sm"
+                variant="flat"
+                onPress={() =>
+                  void act("battery", () => appCall("openBatterySettings"))
+                }
+              >
+                去设置
+              </Button>
+            )
+          }
+          check="battery"
+          label="电池「无限制」"
+          note={
+            !batteryOk &&
+            `不设的话锁屏后系统会关掉本地端口，自动连接也不会跑。${s?.battery.hint ? ` ${s.battery.hint}` : ""}`
+          }
+          ok={batteryOk}
+          value={batteryOk ? "已设好" : "还没设"}
+        />
+        <CheckRow
+          action={
+            <Button
+              color="warning"
+              isLoading={busy === "cred"}
+              size="sm"
+              variant="flat"
+              onPress={() =>
+                void act("cred", () => appCall("editCredentials", {}, 600000))
+              }
+            >
+              {credOk ? "修改" : "填写"}
+            </Button>
+          }
+          check="credentials"
+          label="商家账号"
+          note={
+            !credOk &&
+            "客户端 ID + Agent Token：只存在这台手机上（系统加密），不会发给面板。"
+          }
+          ok={credOk}
+          value={
+            credOk
+              ? `已填${s?.credentials.clientIdHint ? ` ·…${s.credentials.clientIdHint}` : ""}`
+              : "还没填"
+          }
+        />
+        <CheckRow
+          action={
+            bypass ? (
+              <button
+                className="text-xs text-default-500 underline-offset-2 hover:underline"
+                type="button"
+                onClick={() => setBypassOk(false)}
+              >
+                撤销
+              </button>
+            ) : (
+              <Button
+                color="success"
+                size="sm"
+                variant="flat"
+                onPress={() => setBypassOk(true)}
+              >
+                已设好
+              </Button>
+            )
+          }
+          check="bypass"
+          label="分应用代理"
+          note={
+            !bypass && (
+              <>
+                面板查不到这一项：在代理客户端里把 im.gamer
+                设成「绕过」，设好后点「已设好」。
+                <button
+                  className="ml-1 text-primary"
+                  type="button"
+                  onClick={() => setTips(true)}
+                >
+                  怎么设
+                </button>
+              </>
+            )
+          }
+          ok={bypass}
+          value={bypass ? "已设好（自己勾的）" : "绕过 im.gamer"}
+          warn={false}
+        />
+        <CheckRow
+          check="devices"
+          label="商家在线设备"
+          note={
+            full &&
+            "名额满了：这台手机是单独的一台设备，连接可能被商家拒绝（先在商家那边下线一台）。"
+          }
+          ok={!!dev && !full}
+          value={dev ? `${dev.count} / ${dev.limit}` : "面板还没读到"}
+          warn={full}
+        />
+      </div>
+
+      <div
+        className="space-y-1.5 rounded-xl border border-divider px-3 py-2.5"
+        data-phone-quick=""
+      >
+        <div className="text-xs font-semibold text-default-600">快捷设置</div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <AutoConnectSwitch s={s} />
+          {s?.warm.supported ? (
+            <LabeledSwitch
+              isSelected={!!s.warm.on}
+              onValueChange={(on) =>
+                void act("warm", () => appStateCall("setWarm", { on }))
+              }
+            >
+              预热池
+            </LabeledSwitch>
+          ) : (
+            <span className="text-xs text-default-500">
+              预热池：这台手机不支持
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] leading-4 text-default-500">{autoNote(s)}</p>
+      </div>
+
+      <div className="space-y-2" data-phone-connect-block="">
+        <ConnectButtons full s={s} size="lg" />
+        <ConnectState s={s} />
+      </div>
+
+      <PhoneForwardList rules={rules} s={s} />
+
       <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-4 text-default-500">
         <li>
           一台手机 = 商家的一台设备
           {dev ? `（现在在线 ${dev.count} / ${dev.limit}）` : ""}
-          ：名额满了会连不上，先在商家那边下线一台。
+          ：名额满了会连不上。
         </li>
-        <li>
-          这台手机上的其他利群 App（重仓利群、利群原版、官方
-          App）要先关掉：它们用同样的端口。
-        </li>
+        <li>这台手机上的其他利群 App 要先关掉：它们用同样的端口。</li>
         <li>只在这台手机上生效：电脑和别的设备照常走服务器主入口。</li>
       </ul>
+
+      <PhoneMore s={s} />
     </div>
   );
 }
@@ -857,75 +1417,32 @@ const fmtTime = (ms?: number) =>
     : "—";
 
 /**
- * 手机本地 modules (desktop drawer body, H5 ＋ row body) — laid out like a
- * server entry's details (支持功能 from the same capability schema) plus the
- * phone-only parts.
+ * Plan 315 (user 11-26): 入口机 → 手机本地 shows information only, like a
+ * server entry (address, one status pill, 版本, 支持功能, 日志快切, 预热池,
+ * 转发 就绪 x/y). Connecting and every setting live in 授权 → 我的入口.
  */
-export function PhoneDetails({
-  usage,
-  rules,
-  compact = false,
-  onSetEntry,
-}: {
-  /** admin: the panel's vendor usage view (在线设备 x/y) */
-  usage?: LeiKwanUsageView | null;
-  rules: LeiKwanRule[];
-  compact?: boolean;
-  /** 「设为入口…」 (opens 换主入口 with 手机本地 picked) */
-  onSetEntry?: () => void;
-}) {
+export function PhoneDetails({ compact = false }: { compact?: boolean }) {
   const ctx = usePhoneCtx();
-  const { busy, act } = useAct();
-  const [log, setLog] = useState<PhoneLog | null>(null);
   const kvw = compact ? "w-[5.25rem]" : "w-28";
   const s = ctx?.state || null;
   const info = ctx?.info || null;
-  const sum = phoneSummary(s);
+  const pill = phoneEntryPill(s);
   const running = phoneRunning(s);
-  const dev = usage?.devices;
-  const full = !!dev && dev.limit > 0 && dev.count >= dev.limit;
   const caps = phoneCaps(info);
-  const ruleOf = (fid: number, port: number) =>
-    rules.find((r) =>
-      r.forwardId ? r.forwardId === fid : r.listenPort === port,
-    );
 
   return (
     <div className="space-y-2" data-leikwan-phone-details="">
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-default-500">
         <span className="font-mono">{PHONE_HOST}</span>
-        <Pill tone={sum.tone}>{sum.text}</Pill>
-        {ctx?.local ? (
-          <Pill tone="teal">这台手机的入口</Pill>
-        ) : (
-          <Pill tone="slate">没选它当入口</Pill>
-        )}
         {s?.startedAt && running && <span>{fmtTime(s.startedAt)} 起 台湾</span>}
       </div>
-      {s?.error && (
-        <div
-          className="rounded-lg bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-700 dark:bg-red-400/15 dark:text-red-300"
-          data-phone-error=""
-        >
-          {s.error}
-          {s.errorCode && (
-            <span className="ml-1 font-mono text-[11px] opacity-70">
-              ({s.errorCode})
-            </span>
-          )}
-        </div>
-      )}
-      {!ctx?.local && (
-        <p className="rounded-lg bg-slate-500/10 px-3 py-2 text-xs text-default-600 dark:bg-slate-400/10">
-          要用手机本地：授权 → 换主入口 → 选「手机本地」（只在这台手机上生效）。
-        </p>
-      )}
       <div className="divide-y divide-divider/60">
         <KV label="利群客户端" labelClassName={kvw}>
-          <Pill tone={sum.tone}>
-            {s?.connection === "failed" ? "连接失败" : sum.text}
-          </Pill>
-          {(ctx?.local || running) && <ConnectButtons s={s} />}
+          <Pill tone={pill.tone}>{pill.text}</Pill>
+          <Pill tone="slate">手机 App</Pill>
+          {info && (
+            <span className="text-xs text-default-500">{info.device.name}</span>
+          )}
         </KV>
         <KV label="版本" labelClassName={kvw}>
           {info ? (
@@ -969,214 +1486,29 @@ export function PhoneDetails({
         )}
         <KV label="预热池" labelClassName={kvw}>
           {s?.warm.supported ? (
-            <LabeledSwitch
-              isSelected={!!s.warm.on}
-              onValueChange={(on) =>
-                void act("warm", () => appStateCall("setWarm", { on }))
-              }
-            >
+            <Pill tone={s.warm.on ? "green" : "slate"}>
               {s.warm.on ? "开" : "关"}
-            </LabeledSwitch>
+            </Pill>
           ) : (
             <span className="text-xs text-default-500">这台手机不支持</span>
           )}
         </KV>
-        <KV label="自动连接" labelClassName={kvw}>
-          <AutoConnectSwitch s={s} />
-          <span className="w-full text-xs text-default-500">{autoNote(s)}</span>
-        </KV>
-        <KV label="电池" labelClassName={kvw}>
-          {s?.battery.unrestricted ? (
-            <Pill tone="green">无限制</Pill>
-          ) : (
-            <>
-              <Pill tone="red">没设成无限制</Pill>
-              <Button
-                color="warning"
-                size="sm"
-                variant="flat"
-                onPress={() =>
-                  void act("battery", () => appCall("openBatterySettings"))
-                }
-              >
-                去设置
-              </Button>
-              <span className="w-full text-xs text-default-500">
-                不设的话锁屏后系统会关掉本地端口，也不会自动连接
-              </span>
-            </>
-          )}
-        </KV>
-        <KV label="商家在线设备" labelClassName={kvw}>
-          {dev ? (
-            <>
-              <Pill tone={full ? "amber" : "purple"}>
-                {dev.count} / {dev.limit}
-              </Pill>
-              {full && (
-                <span className="text-xs text-amber-700 dark:text-amber-300">
-                  名额满了：这台手机是单独的一台设备，连接可能被商家拒绝（先在商家那边下线一台）
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-xs text-default-500">面板还没读到</span>
-          )}
-        </KV>
-        <KV label="商家账号" labelClassName={kvw}>
-          <Button
-            color="warning"
-            isLoading={busy === "cred"}
-            size="sm"
-            variant="flat"
-            onPress={() =>
-              void act("cred", () => appCall("editCredentials", {}, 600000))
-            }
-          >
-            {s?.credentials.set
-              ? `已填${s.credentials.clientIdHint ? ` ·…${s.credentials.clientIdHint}` : ""} · 修改`
-              : "填写商家账号"}
-          </Button>
-          <span className="w-full text-xs text-default-500">
-            客户端 ID + Agent Token 只存在这台手机上，不发给面板
+        <KV label="转发" labelClassName={kvw}>
+          <span className="text-xs">
+            {running && s?.total ? `就绪 ${s.ready} / ${s.total}` : "—"}
           </span>
         </KV>
       </div>
-
-      <div className="space-y-1.5">
-        <div className="text-xs font-semibold text-default-600">专线状态</div>
-        {(s?.forwards || []).map((f) => {
-          const r = ruleOf(f.forwardId, f.localPort);
-
-          return (
-            <div
-              key={f.forwardId}
-              className="flex flex-wrap items-center gap-1.5 rounded-lg border border-divider px-2.5 py-1.5"
-              data-phone-forward={f.forwardId}
-            >
-              <span className="min-w-0 flex-1 break-words text-[13px] font-medium">
-                {r
-                  ? `${r.lineName} · ${r.name}`
-                  : f.name || `利群 #${f.forwardId}`}
-              </span>
-              <span className="font-mono text-xs text-default-600">
-                127.0.0.1:{f.localPort}
-              </span>
-              <Pill
-                tone={
-                  f.state === "ready"
-                    ? "green"
-                    : f.state === "failed"
-                      ? "red"
-                      : f.state === "connecting"
-                        ? "amber"
-                        : "slate"
-                }
-              >
-                {f.state === "ready"
-                  ? "就绪"
-                  : f.state === "failed"
-                    ? "失败"
-                    : f.state === "connecting"
-                      ? "连接中"
-                      : "未连接"}
-              </Pill>
-              {f.protect === "logswitch" && f.state === "ready" && (
-                <Pill
-                  title={
-                    f.switched
-                      ? "日志快切：新连接正走备线"
-                      : "日志快切待命：出故障时新连接改走备线"
-                  }
-                  tone={f.switched ? "amber" : "green"}
-                >
-                  {f.switched ? "正走备线" : "快切"}
-                </Pill>
-              )}
-              {f.reason && f.state !== "ready" && (
-                <span className="w-full text-xs text-default-500">
-                  {f.reason}
-                </span>
-              )}
-            </div>
-          );
-        })}
-        {s && s.forwards.length === 0 && (
-          <p className="text-xs text-default-500">
-            连接一次后，这里列出商家账号的每条转发和本机端口。
-          </p>
-        )}
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-default-600">
-            运行日志
-          </span>
-          <span className="text-xs text-default-500">
-            {fmtBytes(s?.logBytes || 0)} · 最多 2 MB
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            color="primary"
-            size="sm"
-            variant="flat"
-            onPress={async () => {
-              if (log) {
-                setLog(null);
-
-                return;
-              }
-              setLog(
-                await run(appCall<PhoneLog>("getLog", { maxChars: 20000 })),
-              );
-            }}
-          >
-            {log ? "收起" : "查看"}
-          </Button>
-          <Button
-            color="secondary"
-            size="sm"
-            variant="flat"
-            onPress={() =>
-              void act("copy", () => appCall("copyLog"), "运行日志已复制")
-            }
-          >
-            复制
-          </Button>
-          <Button
-            color="secondary"
-            size="sm"
-            variant="flat"
-            onPress={() => void act("share", () => appCall("shareLog"))}
-          >
-            分享
-          </Button>
-        </div>
-        {log && (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-default-100 p-2 font-mono text-[11px] leading-4 text-default-700 dark:bg-default-100/50">
-            {log.truncated ? "…（只显示最后一段）\n" : ""}
-            {log.text}
-          </pre>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-default-500">
-        {info && <span>{info.device.name}</span>}
-        {onSetEntry && !ctx?.local && (
-          <Button color="primary" size="sm" variant="flat" onPress={onSetEntry}>
-            设为入口…
-          </Button>
-        )}
+      {ctx?.openConnect && (
         <button
-          className="ml-auto text-xs text-default-500 underline-offset-2 hover:underline"
+          className="text-xs text-default-500 underline-offset-2 hover:underline"
+          data-phone-goto-grants=""
           type="button"
-          onClick={() => void run(appCall("changePanel"))}
+          onClick={() => ctx.openConnect?.()}
         >
-          换面板地址
+          连接和设置在 授权 → 我的入口 ›
         </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -1184,12 +1516,10 @@ export function PhoneDetails({
 export function PhoneDrawer({
   open,
   onClose,
-  onSetEntry,
-  ...rest
 }: {
   open: boolean;
   onClose: () => void;
-} & Parameters<typeof PhoneDetails>[0]) {
+}) {
   const ctx = usePhoneCtx();
   const s = ctx?.state || null;
 
@@ -1215,14 +1545,9 @@ export function PhoneDrawer({
           </span>
         </ModalHeader>
         <ModalBody>
-          <PhoneDetails {...rest} />
+          <PhoneDetails />
         </ModalBody>
         <ModalFooter>
-          {onSetEntry && !ctx?.local && (
-            <Button color="primary" variant="flat" onPress={onSetEntry}>
-              设为入口…
-            </Button>
-          )}
           <Button color="danger" variant="flat" onPress={onClose}>
             关闭
           </Button>

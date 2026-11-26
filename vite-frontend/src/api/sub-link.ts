@@ -64,6 +64,11 @@ export interface SubItem {
    * (default), "local" = 手机本地 127.0.0.1 (badge 「手机本地」).
    */
   entryMode?: SubEntryMode;
+  /**
+   * Plan 315 「节点名带入口名」: true / absent = 转发名 · 入口名 (as before),
+   * false = fixed names (forward name only; 换入口 keeps the name).
+   */
+  entryNames?: boolean;
 }
 
 /** Plan 297: a subscription's entry (main = 跟主入口, local = 手机本地). */
@@ -106,6 +111,9 @@ export interface SubPoolNode {
   /** plan 272 (利群): a 手动落地 rule cannot be in a subscription */
   disabled?: boolean;
   reason?: string;
+  /** plan 315 (rule links): forward name + entry node name (fixed names) */
+  base?: string;
+  entryName?: string;
 }
 
 export interface SubPoolSource extends SubSource {
@@ -117,6 +125,9 @@ export interface SubSelected {
   ref: SubRef;
   key: string;
   name?: string;
+  /** plan 315 (rule links): forward name + entry node name (fixed names) */
+  base?: string;
+  entryName?: string;
   protocol?: string;
   group:
     | "rule"
@@ -225,6 +236,8 @@ export interface SubSaveBody {
   routing?: SubRouteEntry[];
   /** Plan 297: absent = keep (update) / main (create) */
   entryMode?: SubEntryMode;
+  /** Plan 315: absent = keep (update) / today's names (create) */
+  entryNames?: boolean;
 }
 
 export interface SubProbeResult {
@@ -308,6 +321,8 @@ export interface SubAdminSub {
   createdTime: number;
   /** Plan 297: "local" = 手机本地 subscription (badge) */
   entryMode?: SubEntryMode;
+  /** Plan 315: 「节点名带入口名」 off (fixed names); absent = on */
+  fixedNames?: boolean;
 }
 
 export interface SubAdminSource {
@@ -374,6 +389,8 @@ export interface SubAdminDetail {
   routing: SubAdminRoute[] | null;
   routingKind: SubAdminRoutingKind;
   routingCatalog: SubRouteCategory[];
+  /** Plan 315 「节点名带入口名」 (false = fixed names) */
+  entryNames?: boolean;
 }
 
 export const subAdminList = () =>

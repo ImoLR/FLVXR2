@@ -164,7 +164,8 @@ func TestSubNamesFixedEntrySwitched(t *testing.T) {
 	// save keeps it there.
 	pool := dataMap(t, subCall(t, e.h, "pool", map[string]any{"id": id}, 2, 1))
 	sel := pool["selected"].([]any)
-	if len(sel) != 1 || sel[0].(map[string]any)["missing"] == true || sel[0].(map[string]any)["name"] != "游戏加速" ||
+	if len(sel) != 1 || sel[0].(map[string]any)["missing"] == true || sel[0].(map[string]any)["base"] != "游戏加速" ||
+		sel[0].(map[string]any)["entryName"] != "广州电信入口" ||
 		sel[0].(map[string]any)["key"] != "f:901:603|198.51.100.30" {
 		t.Fatalf("selected %v", sel)
 	}

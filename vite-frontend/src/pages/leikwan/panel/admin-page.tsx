@@ -73,7 +73,6 @@ import {
 } from "@/pages/leikwan/panel/layout-parts";
 import { LeiKwanLineDialog } from "@/pages/leikwan/panel/line-dialog";
 import {
-  PhoneConnectPanel,
   PhoneDetails,
   PhoneDrawer,
   PhoneEntryCopy,
@@ -90,6 +89,7 @@ import {
   usePhoneRule,
   type PhoneCtx,
 } from "@/pages/leikwan/panel/phone-entry";
+import { MyEntryCard } from "@/pages/leikwan/panel/my-entry";
 import {
   LineEndInTag,
   phoneArg,
@@ -500,7 +500,10 @@ function LineGroupBlock({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <LkChevron open={open} />
-            <span className="text-[15px] font-semibold">{g.name}</span>
+            {/* Plan 315: the 专线 name never breaks inside. */}
+            <span className="whitespace-nowrap text-[15px] font-semibold">
+              {g.name}
+            </span>
             <Pill title={g.route} tone="teal">
               {routeShort(g.route)}
             </Pill>
@@ -826,13 +829,15 @@ export function LeiKwanAdminView() {
 
   // Plan 301: the App's 日志快切 / 备线 / 预热池 values (whenever the list reloads).
   usePhonePlanSync(phoneOn && appHas(phone.info, "plan"), rules);
+  // Plan 315: connecting / setting up 手机本地 lives in 授权 → 我的入口.
   const openConnect = () => {
+    setPhoneDrawer(false);
     if (h5) setTab("grants");
     window.setTimeout(
       () =>
         document
-          .getElementById("phone-connect-panel")
-          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+          .getElementById("phone-my-entry")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
       60,
     );
   };
@@ -948,14 +953,14 @@ export function LeiKwanAdminView() {
     setPresetPhone(false);
     setGrantOpen(true);
   };
-  // Plan 297: 手机本地 drawer 「设为入口…」 = 换主入口 of the own grant.
-  const openSetPhone = () => {
+  // Plan 315: 我的入口 → another server entry = 换主入口 of the own grant,
+  // preset to it (all devices; the dialog shows the per-forward preview).
+  const openSwitchServer = (nodeId: number) => {
     if (!myGrant) return;
-    setPhoneDrawer(false);
     setEditGrant(myGrant);
     setGrantMode("entry");
-    setPresetEntry(undefined);
-    setPresetPhone(true);
+    setPresetEntry(nodeId);
+    setPresetPhone(false);
     setGrantOpen(true);
   };
   const doRevoke = async (g: LeiKwanGrant) => {
@@ -1201,15 +1206,7 @@ export function LeiKwanAdminView() {
         onClose={() => setSubOpen(false)}
       />
       {phoneOn && (
-        <PhoneDrawer
-          open={phoneDrawer}
-          rules={(rules?.rules || []).filter(
-            (r) => r.userId === myGrant?.userId,
-          )}
-          usage={usage}
-          onClose={() => setPhoneDrawer(false)}
-          onSetEntry={openSetPhone}
-        />
+        <PhoneDrawer open={phoneDrawer} onClose={() => setPhoneDrawer(false)} />
       )}
     </>
   );
@@ -1224,11 +1221,15 @@ export function LeiKwanAdminView() {
   const ownRules = (rules?.rules || []).filter(
     (r) => r.userId === myGrant?.userId,
   );
-  const connectPanel = phoneLocal && (
-    <PhoneConnectPanel
+  // Plan 315: 「我的入口」 on top of 授权 (App, the admin's own grant).
+  const connectPanel = phoneOn && myGrant && (
+    <MyEntryCard
+      entries={entries}
+      grant={myGrant}
       rules={ownRules}
       usage={usage}
-      onDetails={() => setPhoneDrawer(true)}
+      onChanged={() => void load()}
+      onSwitchServer={openSwitchServer}
     />
   );
 
@@ -1247,7 +1248,6 @@ export function LeiKwanAdminView() {
           me={me}
           myGrantId={myGrant?.userId}
           nightOnly={nightOnly}
-          ownRules={ownRules}
           pipeCard={pipeCard}
           revoke={revoke}
           setTab={setTab}
@@ -1259,7 +1259,6 @@ export function LeiKwanAdminView() {
           onHostView={patchHost}
           onNewGrant={() => openGrantDialog(null)}
           onRevoke={(g) => void doRevoke(g)}
-          onSetPhone={openSetPhone}
           onSettings={() => setSettingsOpen(true)}
           onSub={() => setSubOpen(true)}
         />
@@ -1475,16 +1474,23 @@ function AdminRuleCard({
 
   return (
     <LkExpandCard
-      chip={<RuleLatencyTag phone={phoneArg(pv)} rule={r} />}
       data-leikwan-rule={r.name}
       dot={<RuleDot rule={r} />}
       name={
-        <>
-          {r.backupError && (
-            <AlertTriangle className="mr-1 inline text-red-700" size={13} />
-          )}
-          {r.name}
-        </>
+        // Plan 315: the name is never squeezed by the 到落地 tag — words stay
+        // whole (CJK too) and the tag drops under the name when the row has
+        // no room (360 px / big WebView text); right of the name otherwise.
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="[word-break:keep-all]">
+            {r.backupError && (
+              <AlertTriangle className="mr-1 inline text-red-700" size={13} />
+            )}
+            {r.name}
+          </span>
+          <span className="ml-auto inline-flex font-normal">
+            <RuleLatencyTag phone={phoneArg(pv)} rule={r} />
+          </span>
+        </span>
       }
       open={open}
       onToggle={onToggle}
@@ -1605,15 +1611,11 @@ function AdminPhone({
   usage,
   connectPanel,
   myGrantId,
-  ownRules,
-  onSetPhone,
 }: {
-  /** Plan 297 (App): 手机本地 connect panel (授权 tab, while it is the entry) */
+  /** Plan 315 (App): 「我的入口」 card on top of the 授权 tab */
   connectPanel?: ReactNode;
   /** Plan 297: the admin's own grant (手机本地 lives there) */
   myGrantId?: number;
-  ownRules: LeiKwanRule[];
-  onSetPhone: () => void;
   headerChips: ReactNode;
   tab: "rules" | "grants" | "hosts";
   setTab: (t: "rules" | "grants" | "hosts") => void;
@@ -1741,29 +1743,36 @@ function AdminPhone({
                     setOpenLine(open ? null : g.id);
                   }}
                 >
+                  {/* Plan 315 (user 11-26): one line at 360 px / 130 % text —
+                      the name never wraps; 「端内」 sits in the right cluster
+                      before the count; the route pill moved to the chip row
+                      under the header (open). */}
                   <LkChevron open={open} />
-                  <span className="min-w-0 break-words text-[15px] font-semibold">
+                  <span
+                    className="shrink-0 whitespace-nowrap text-[15px] font-semibold"
+                    data-leikwan-line-name=""
+                  >
                     {g.name}
                   </span>
-                  <Pill title={g.route} tone="teal">
-                    {routeShort(g.route)}
-                  </Pill>
-                  <LineEndInTag endIn={g.line?.endIn} />
                   {g.rules.some((r) => r.backupError) && (
                     <AlertTriangle
                       className="shrink-0 text-red-700"
                       size={14}
                     />
                   )}
-                  <span className="flex-1" />
+                  <span className="min-w-0 flex-1" />
+                  <LineEndInTag endIn={g.line?.endIn} />
                   <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-purple-500/15 px-1.5 text-xs font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300">
                     {g.rules.length}
                   </span>
                 </div>
                 {open && (
                   <div className="space-y-2 px-2.5 pb-2.5">
-                    {g.line && (
+                    {g.line ? (
                       <div className="flex flex-wrap items-center gap-1 px-0.5">
+                        <Pill title={g.route} tone="teal">
+                          {routeShort(g.route)}
+                        </Pill>
                         <LineChips compact line={g.line} />
                         <button
                           className="ml-auto text-sm font-medium text-primary"
@@ -1772,6 +1781,12 @@ function AdminPhone({
                         >
                           编辑专线
                         </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1 px-0.5">
+                        <Pill title={g.route} tone="teal">
+                          {routeShort(g.route)}
+                        </Pill>
                       </div>
                     )}
                     {g.rules.map((r) => (
@@ -1807,6 +1822,7 @@ function AdminPhone({
 
       {tab === "grants" && (
         <div className="space-y-3">
+          {connectPanel}
           <Button
             className="h-11 w-full"
             color="success"
@@ -1816,7 +1832,6 @@ function AdminPhone({
           >
             授权用户
           </Button>
-          {connectPanel}
           {grants.map((g) => (
             <LkExpandCard
               key={g.id}
@@ -1941,12 +1956,7 @@ function AdminPhone({
               open={hostExpand.open === -1}
               onToggle={() => hostExpand.toggle(-1)}
             >
-              <PhoneDetails
-                compact
-                rules={ownRules}
-                usage={usage}
-                onSetEntry={onSetPhone}
-              />
+              <PhoneDetails compact />
             </PhoneHostRow>
           )}
           {hostList.map((h) => (

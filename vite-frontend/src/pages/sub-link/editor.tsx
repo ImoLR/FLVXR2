@@ -38,6 +38,7 @@ import { AddExternalDialog } from "@/pages/landing/chain-proxy";
 import { Pill, landingToneClass } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
+import { Switch } from "@/shadcn-bridge/heroui/switch";
 import {
   Modal,
   ModalBody,
@@ -224,10 +225,13 @@ function SelectedRow({
   item,
   onRemove,
   h5,
+  shownName,
 }: {
   item: SubSelected;
   onRemove: () => void;
   h5?: { open: boolean; onToggle: () => void; detail?: string };
+  /** Plan 315: the name the client shows (fixed names) */
+  shownName?: string;
 }) {
   const {
     setNodeRef,
@@ -270,12 +274,12 @@ function SelectedRow({
             ? `${item.sourceName} · 全部节点`
             : lkAll
               ? LEIKWAN_ALL_NAME
-              : item.name || "（已删除的节点）"
+              : shownName || item.name || "（已删除的节点）"
         }
         nameClassName={
           item.missing ? "text-red-700 line-through dark:text-red-300" : ""
         }
-        nameTitle={all ? item.sourceName : item.name}
+        nameTitle={all ? item.sourceName : shownName || item.name}
         open={h5.open}
         rowProps={{ "data-sub-selected": item.key }}
         rowRef={setNodeRef}
@@ -366,7 +370,7 @@ function SelectedRow({
             ? `${item.sourceName} · 全部节点（自动跟随）`
             : lkAll
               ? `${LEIKWAN_ALL_NAME}（自动跟随）`
-              : item.name || "（已删除的节点）"}
+              : shownName || item.name || "（已删除的节点）"}
         </div>
         <div
           className={`truncate text-xs ${item.missing ? "text-red-600 dark:text-red-300" : "text-default-500"}`}
@@ -437,6 +441,10 @@ export function SubEditor({
   const [entryMode, setEntryMode] = useState<SubEntryMode>(
     sub?.entryMode === "local" ? "local" : "main",
   );
+  // Plan 315 「节点名带入口名」: a new subscription starts with fixed names
+  // (off); an existing one shows its setting (NULL = on, today's names).
+  const namesAtOpen = sub ? sub.entryNames !== false : false;
+  const [entryNames, setEntryNames] = useState(namesAtOpen);
   const [selected, setSelected] = useState<SubSelected[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -489,6 +497,25 @@ export function SubEditor({
   );
 
   const keys = useMemo(() => new Set(selected.map((s) => s.key)), [selected]);
+  // Plan 315: with 「节点名带入口名」 off, a rule node is named after the
+  // forward; 「 · 入口名」 only when the forward is picked through 2+ entries.
+  const fixedName = useMemo(() => {
+    const per = new Map<number, number>();
+
+    for (const s of selected)
+      if (s.group === "rule" && !s.missing && s.base !== undefined) {
+        const f = s.ref.forwardId || 0;
+
+        per.set(f, (per.get(f) || 0) + 1);
+      }
+
+    return (s: SubSelected) =>
+      entryNames || s.group !== "rule" || s.base === undefined || s.missing
+        ? undefined
+        : (per.get(s.ref.forwardId || 0) || 0) > 1 && s.entryName
+          ? `${s.base} · ${s.entryName}`
+          : s.base;
+  }, [selected, entryNames]);
   // H5 「已选」 rows (user 11-14): one open at a time; the expanded area shows
   // the address / entry from the pool.
   const selExpand = useExpandOne(selected.map((s) => s.key));
@@ -662,6 +689,8 @@ export function SubEditor({
     externalAuto: n.externalAuto,
     group: g.sel,
     sourceName: g.source?.name,
+    base: n.base,
+    entryName: n.entryName,
   });
   const add = (n: SubPoolNode, g: Group) => {
     if (n.disabled) {
@@ -792,6 +821,9 @@ export function SubEditor({
         items: selected.filter((s) => !s.missing).map((s) => s.ref),
         ...(routingOn ? { routing } : {}),
         ...(entryRow ? { entryMode } : {}),
+        // Plan 315: sent for a new subscription or a change only (an old row
+        // stays NULL until the switch is touched).
+        ...(!sub || entryNames !== namesAtOpen ? { entryNames } : {}),
       };
       const res = sub ? await subUpdate(body) : await subCreate(body);
 
@@ -1121,6 +1153,7 @@ export function SubEditor({
                       : undefined
                   }
                   item={s}
+                  shownName={fixedName(s)}
                   onRemove={() => remove(s.key)}
                 />
               ))}
@@ -1202,6 +1235,31 @@ export function SubEditor({
       </p>
     </div>
   );
+  // Plan 315: only rule nodes ever carry an entry name.
+  const namesRow = (!!pool?.rules.length || !namesAtOpen) && (
+    <div className="space-y-1" data-sub-entry-names={entryNames ? "on" : "off"}>
+      <div className="inline-flex items-center gap-2">
+        <SegLabel text="节点名" />
+        <Switch
+          aria-label="节点名带入口名"
+          isSelected={entryNames}
+          size="sm"
+          onValueChange={setEntryNames}
+        />
+        <button
+          className="text-[13px]"
+          type="button"
+          onClick={() => setEntryNames(!entryNames)}
+        >
+          节点名带入口名
+        </button>
+      </div>
+      <p className="text-xs text-default-400">
+        关掉后节点名字固定：换入口、更新订阅名字都不变，客户端（如
+        NekoBox）里按名字写的分流规则不用改
+      </p>
+    </div>
+  );
   const settings = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <Seg
@@ -1211,6 +1269,7 @@ export function SubEditor({
         onChange={setFormat}
       />
       {entryControl}
+      {namesRow}
     </div>
   );
   const hint = (
@@ -1256,6 +1315,7 @@ export function SubEditor({
                 />
                 {linksHint}
                 {entryControl}
+                {namesRow}
               </div>
               <div className="flex rounded-xl bg-slate-500/10 p-0.5 dark:bg-slate-400/15">
                 {(

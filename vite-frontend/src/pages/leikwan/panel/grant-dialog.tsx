@@ -238,14 +238,17 @@ export function LeiKwanGrantDialog({
     setPicked(null);
     setPreview(null);
     setUserId(user ? String(user.id) : grant ? String(grant.userId) : "");
+    // Plan 315: a preset server entry (我的入口 dropdown) wins over 手机本地.
     setEntry(
-      phoneOn && (presetPhone || phoneLocal)
+      phoneOn && presetPhone
         ? PHONE_KEY
         : presetEntry !== undefined
           ? String(presetEntry)
-          : grant
-            ? String(grant.mainEntryNodeId)
-            : "",
+          : phoneOn && phoneLocal
+            ? PHONE_KEY
+            : grant
+              ? String(grant.mainEntryNodeId)
+              : "",
     );
     setBackupLine(grant ? grant.backupLine : true);
     // Plan 295: 「设为主入口…」 with one granted user picks that user.
@@ -563,7 +566,7 @@ export function LeiKwanGrantDialog({
               127.0.0.1:端口（复制链接；这时生成的订阅也是手机本地的）。
               {phoneCtx?.state?.autoConnect
                 ? "「打开 App 自动连接」开着：保存后马上连接。"
-                : "保存后在授权里点「连接」。"}
+                : "保存后在 授权 → 我的入口 里点「连接」。"}
             </p>
           )}
           {phoneSwitch && !pickedPhone && (

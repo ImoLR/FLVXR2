@@ -678,7 +678,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.withNames(sub)
-	picks, perForward := d.rulePicks(refs)
+	picks, _ := d.rulePicks(refs)
 	item := func(ref sublink.Ref, n sublink.Node, detail string) map[string]interface{} {
 		return map[string]interface{}{"ref": subRefView(ref), "key": ref.Key(), "name": n.Name, "protocol": n.ProtocolLabel(), "detail": detail}
 	}
@@ -686,6 +686,8 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 	for _, l := range d.panel.Links {
 		it := item(l.Ref, l.Node, l.Detail)
 		if l.Rule {
+			// Plan 315: the editor shows the fixed name from these.
+			it["base"], it["entryName"] = l.BaseName, l.EntryName
 			it["chain"] = l.Chain
 			if l.External != "" { // plan 284: 端口转发 · 外部节点 <名>
 				it["external"], it["externalAuto"] = l.External, l.ExternalAuto
@@ -756,8 +758,9 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 			}
 			if ok {
 				v["name"], v["protocol"], v["group"] = l.Node.Name, l.Node.ProtocolLabel(), "landing"
-				if l.Rule && d.fixedNames {
-					v["name"] = fixedRuleName(l, perForward) // plan 315: as the client shows it
+				if l.Rule {
+					// Plan 315: the editor shows the fixed name from these.
+					v["base"], v["entryName"] = l.BaseName, l.EntryName
 				}
 				if l.Rule {
 					v["group"], v["chain"] = "rule", l.Chain

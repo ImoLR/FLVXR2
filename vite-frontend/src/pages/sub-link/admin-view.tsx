@@ -51,7 +51,8 @@ function routingWord(s: SubAdminSub) {
 }
 
 function subMeta(s: SubAdminSub) {
-  return `${formatShort[s.format] || s.format} · ${s.nodes} 个节点 · 分流：${routingWord(s)}`;
+  // Plan 315: 「节点名带入口名」 off is the only new word (on = as before).
+  return `${formatShort[s.format] || s.format} · ${s.nodes} 个节点 · 分流：${routingWord(s)}${s.fixedNames ? " · 节点名固定" : ""}`;
 }
 
 function userCounts(u: SubAdminUser) {
