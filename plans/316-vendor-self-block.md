@@ -50,7 +50,7 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
 - [x] Lab Core test (netns): SNI vendor blocked, other SNI passes, private-target protection unchanged
 - [x] Frontend: 内置 row (admin + node + H5 compact), 管理厂商 dialog, server 设置 select, ⚠ 未设置厂商
 - [x] Screenshots desktop + 390 px (gallery)
-- [ ] go vet + go test (SQLite + PG handler/repo/contract), go-gost tests, npm run build
+- [x] go vet + go test (SQLite + PG handler/repo/contract), go-gost tests, npm run build
 - [x] Prod-DB copy render before/after: diff = only the new rule, only on servers with a vendor
 - [ ] Wait for fork.175, rebase, release fork.176 (tag, CI, assets)
 - [ ] Prod backup + upgrade, prune backups
@@ -74,3 +74,9 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
   rule in first place (DMIT T1 shared no marker; native v2 agents marker abuse; simulated v3 marker vendor); Boil Hinet 158
   unassigned → identical; empty servers identical; warnings / outbounds / restart flags unchanged (work/render-diff.txt).
 - Gallery: http://104.145.236.29:8791/vendor-self-block/ (27 PNG, desktop / 390 px / dark).
+- Tests: go-backend `go vet ./...` ok; `go test ./...` SQLite: one failure, TestLandingUserServerViewContract (pins the admin
+  server-view keys) → expected keys updated (vendor fields admin-only, never in the user view), rerun ok; PG
+  (`FLVX_POSTGRES_TEST_DSN`, `-p 1`): handler 426 s ok, repo 500 s ok, contract 617 s ok. go-gost/x `landing` + `socket`
+  ok (TestRemoveCoreRefusals needs a short TMPDIR: unix socket path limit, environment only). `npm run build` ok.
+- Rollback rehearsal: fork.175 code (2458af9f) opens the migrated prod-DB copy (vendor columns + values) and renders every
+  plan byte-identical to before (work/render-rollback175.json).
