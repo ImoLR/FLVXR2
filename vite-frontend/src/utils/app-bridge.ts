@@ -43,6 +43,13 @@ export interface PhoneForward {
   switched?: boolean;
   /** a 备线 is set for it (from the phone plan) */
   backup?: boolean;
+  /**
+   * Plan 310 r3 (panel side ready; needs an App that fills it): the phone
+   * client's own 全程 from its status (the core's active_udp / latest_tcp,
+   * read like the panel's 诊断 — NO handshake). The 手机本地 rows show
+   * 本机 → 落地 = this (UDP) + the panel's 专线出口 → 落地; absent → no tag.
+   */
+  total?: { source: "udp" | "tcp"; rttMs: number; ageS: number; loss?: number };
 }
 
 export interface PhoneState {

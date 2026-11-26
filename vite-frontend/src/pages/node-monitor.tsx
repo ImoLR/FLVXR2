@@ -1,9 +1,12 @@
 import type {
   LineMonitorChart,
+  LineMonitorLeiKwanLine,
   LineMonitorLine,
   LineMonitorList,
   LineMonitorNodeOption,
 } from "@/api/line-monitor";
+import type { ChartPrefill } from "./node-monitor/chart-dialog";
+import type { EndInEntry } from "./node-monitor/endin-line";
 
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -51,7 +54,11 @@ export default function NodeMonitorPage() {
   const [editing, setEditing] = useState<{
     open: boolean;
     chart: LineMonitorChart | null;
+    prefill?: ChartPrefill | null;
   }>({ open: false, chart: null });
+  // Plan 310 r3: 「利群专线端内」 lines (专线 + 利群入口 from the options).
+  const [lkLines, setLkLines] = useState<LineMonitorLeiKwanLine[]>([]);
+  const [lkEntries, setLkEntries] = useState<EndInEntry[]>([]);
   const [deleting, setDeleting] = useState<LineMonitorChart | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   // plan 255 part 2 检测端口
@@ -74,7 +81,11 @@ export default function NodeMonitorPage() {
     if (!admin) return;
     void reload();
     void getLineMonitorOptions().then((res) => {
-      if (res.code === 0 && res.data) setNodes(res.data.nodes ?? []);
+      if (res.code === 0 && res.data) {
+        setNodes(res.data.nodes ?? []);
+        setLkLines(res.data.leikwanLines ?? []);
+        setLkEntries(res.data.leikwanEntries ?? []);
+      }
     });
   }, [admin, reload]);
 
@@ -89,6 +100,22 @@ export default function NodeMonitorPage() {
   }, [admin, reload]);
 
   const openNew = () => setEditing({ open: true, chart: null });
+  // Plan 310 r3: one chart with every active 利群专线's 端内 (auto 入口机);
+  // the admin only reviews and saves.
+  const activeLk = lkLines.filter((l) => l.status === 1);
+  const openEndIn = () =>
+    setEditing({
+      open: true,
+      chart: null,
+      prefill: {
+        name: "利群专线端内",
+        lines: activeLk.slice(0, list?.maxPerChart ?? 8).map((l) => ({
+          kind: "lk_endin",
+          leikwanLineId: l.id,
+          sourceNodeId: 0,
+        })),
+      },
+    });
   const onEdit = useCallback(
     (chart: LineMonitorChart) => setEditing({ open: true, chart }),
     [],
@@ -236,6 +263,18 @@ export default function NodeMonitorPage() {
             <ArrowLeft className="h-4 w-4" />
             节点
           </Button>
+          {activeLk.length > 0 && (
+            <Button
+              color="warning"
+              data-testid="lm-new-endin"
+              size="sm"
+              title="一张图画出全部利群专线的端内（利群专线入口 → 专线出口），每分钟从利群入口的上报读，不发探测"
+              variant="flat"
+              onPress={openEndIn}
+            >
+              + 利群专线端内
+            </Button>
+          )}
           {charts.length > 0 && (
             <Button
               color="success"
@@ -304,9 +343,12 @@ export default function NodeMonitorPage() {
         chart={editing.chart}
         dark={dark}
         isOpen={editing.open}
+        lkEntries={lkEntries}
+        lkLines={lkLines}
         maxPerChart={list?.maxPerChart ?? 8}
         maxTotal={list?.maxTotal ?? 40}
         nodes={nodes}
+        prefill={editing.prefill}
         totalLines={list?.totalLines ?? 0}
         onClose={() => setEditing({ open: false, chart: null })}
         onSaved={() => {

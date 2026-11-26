@@ -401,6 +401,7 @@ func autoMigrateAll(db *gorm.DB) error {
 		&model.UserSubdomainKeep{}, // plan 305
 		&model.LineMonitorChart{}, &model.LineMonitorLine{}, &model.LineMonitorSample{}, // plan 255
 		&model.LineMonitorPort{}, // plan 255 part 2 检测端口
+		&model.LineMonitorPart{}, // plan 310 r3 端内 parts
 	}
 
 	if db.Dialector.Name() != "sqlite" {

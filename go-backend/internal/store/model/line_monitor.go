@@ -50,7 +50,21 @@ type LineMonitorLine struct {
 	CheckState string `gorm:"column:check_state;type:varchar(16);not null;default:''" json:"checkState"`
 	CheckMsg   string `gorm:"column:check_msg;type:varchar(255);not null;default:''" json:"checkMsg"`
 	CheckAt    int64  `gorm:"column:check_at;not null;default:0" json:"checkAt"`
+
+	// Plan 310 r3: Kind "" = a TCP line (source → target, above); LineKindLeiKwanEndIn
+	// = 「利群专线端内」 of one 专线 (LeiKwanLineID): passive, one sample a
+	// minute from the 利群入口 reports (全程 − 入口段, no probe). SourceNodeID =
+	// a fixed 利群入口, 0 = auto (an online 入口 with fresh data; each sample
+	// records which one). Target / Port / check fields stay 0 / empty.
+	Kind          string `gorm:"column:kind;type:varchar(16);not null;default:''" json:"kind"`
+	LeiKwanLineID int64  `gorm:"column:leikwan_line_id;not null;default:0" json:"leikwanLineId"`
 }
+
+// LineKindLeiKwanEndIn is the line kind 「利群专线端内」 (plan 310 r3).
+const LineKindLeiKwanEndIn = "lk_endin"
+
+// LineEndInSlotSeconds: an 端内 line has one sample a minute.
+const LineEndInSlotSeconds = 60
 
 func (LineMonitorLine) TableName() string { return "line_monitor_line" }
 
@@ -126,7 +140,22 @@ type LineMonitorSample struct {
 	Status int   `gorm:"column:status;not null"`
 	// Ms10 = latency in tenths of a millisecond (0 for down).
 	Ms10 int `gorm:"column:ms10;not null;default:0"`
+	// Part (plan 310 r3, 端内 lines only): written with the sample into
+	// line_monitor_part (same key); TCP lines have none.
+	Part *LineMonitorPart `gorm:"-"`
 }
+
+// LineMonitorPart (plan 310 r3): the parts of one 端内 sample (Ms10 = 端内 =
+// 全程 − 入口段): 全程 and 入口段 in tenths of a ms and the 利群入口 node it
+// was read from. ID = the sample's packed key; pruned with the samples.
+type LineMonitorPart struct {
+	ID      int64 `gorm:"column:id;primaryKey;autoIncrement:false"`
+	Total10 int   `gorm:"column:total10;not null;default:0"`
+	Seg10   int   `gorm:"column:seg10;not null;default:0"`
+	ViaNode int64 `gorm:"column:via_node;not null;default:0"`
+}
+
+func (LineMonitorPart) TableName() string { return "line_monitor_part" }
 
 // LineSampleKey is the packed (line_id, ts) primary key of a sample.
 func LineSampleKey(lineID, ts int64) int64 {

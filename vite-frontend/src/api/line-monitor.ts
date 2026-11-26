@@ -63,7 +63,15 @@ export interface LineMonitorLine {
   checkMsg?: string;
   checkAt?: number;
   checkPort?: LineMonitorCheckPort;
+  // Plan 310 r3: kind "lk_endin" = 「利群专线端内」 of a 专线 (passive, one
+  // sample a minute); sourceNodeId = a fixed 利群入口 (0 = auto).
+  kind?: LineKind;
+  leikwanLineId?: number;
+  leikwanLineName?: string;
 }
+
+/** Plan 310 r3: "" = TCP source → target; "lk_endin" = 利群专线端内. */
+export type LineKind = "" | "lk_endin";
 
 export interface LineMonitorChart {
   id: number;
@@ -109,6 +117,8 @@ export interface LineMonitorLineInput {
   portMode?: LinePortMode;
   checkWindow?: number;
   checkAllow?: boolean;
+  kind?: LineKind;
+  leikwanLineId?: number;
 }
 
 export interface LineMonitorSeries {
@@ -120,6 +130,10 @@ export interface LineMonitorSeries {
   down: number[];
   closed?: number[];
   exp: number[];
+  // Plan 310 r3 (端内 lines): per bucket 全程 / 入口段 and the 利群入口 node.
+  total?: (number | null)[];
+  seg?: (number | null)[];
+  via?: number[];
 }
 
 export interface LineMonitorStats {
@@ -163,6 +177,8 @@ export interface LineMonitorData {
   live: Record<string, LineMonitorLive>;
   queryMs: number;
   cached?: boolean;
+  /** Plan 310 r3: 利群入口 node id → name (端内 lines' via) */
+  viaNames?: Record<string, string>;
 }
 
 export type LineMonitorRange = "1h" | "6h" | "12h" | "1d" | "30d" | "custom";
@@ -179,7 +195,17 @@ export const getLineMonitorOptions = () =>
     checkPortUnsupported?: string;
     checkWindows?: number[];
     defaultCheckWindow?: number;
+    // Plan 310 r3: what a 「利群专线端内」 line can name.
+    leikwanLines?: LineMonitorLeiKwanLine[];
+    leikwanEntries?: { id: number; name: string; online: boolean }[];
   }>(`${base}/options`, {});
+
+export interface LineMonitorLeiKwanLine {
+  id: number;
+  name: string;
+  routeLabel: string;
+  status: number;
+}
 
 export const getLineMonitorPorts = (nodeId: number) =>
   Network.post<LineMonitorPortHint[]>(`${base}/ports`, { nodeId });

@@ -160,6 +160,22 @@ const msFine = (v?: number, max?: number) =>
     ? `${msFine1(v)}–${msFine1(max)}`
     : msFine1(v);
 
+/** Plan 310: 「在用」 = the ingress the LeiKwan client uses — a filled tag
+ * (solid emerald, white text + dot), stronger than the tinted pills and
+ * unlike the amber 「端内」; same on desktop and H5. */
+function InUseTag({ inUse }: { inUse: string }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-emerald-700 px-2 align-middle text-xs font-semibold leading-[18px] text-white shadow-sm dark:bg-emerald-600 dark:ring-1 dark:ring-emerald-300/40"
+      data-lk-diag-inuse=""
+      title={`利群客户端在用（${inUse}）`}
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white" />
+      在用
+    </span>
+  );
+}
+
 /** Plan 306 r2: 「端内 19 ms」 on the 利群专线入口 → 专线出口 row (every user). */
 function EndInPill({ e }: { e?: LeiKwanDiagEndIn }) {
   if (!e) return null;
@@ -201,11 +217,7 @@ function DesktopRow({ item }: { item: LeiKwanDiagItem }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-foreground">
               <span className="min-w-0 break-words">{item.title}</span>
-              {item.inUse && (
-                <Pill title={`利群客户端在用（${item.inUse}）`} tone="teal">
-                  在用
-                </Pill>
-              )}
+              {item.inUse && <InUseTag inUse={item.inUse} />}
               <EndInPill e={item.endIn} />
             </div>
             {sub && (
@@ -274,22 +286,22 @@ function PhoneCard({ item }: { item: LeiKwanDiagItem }) {
         <div className="min-w-0 flex-1">
           <div className="break-words text-sm font-medium text-foreground">
             {item.title}
+            {item.inUse && (
+              <span className="ml-1.5 inline-block align-middle">
+                <InUseTag inUse={item.inUse} />
+              </span>
+            )}
             {item.endIn && (
               <span className="ml-1.5 inline-block align-middle">
                 <EndInPill e={item.endIn} />
               </span>
             )}
           </div>
-          {(sub || item.inUse) && (
+          {sub && (
             <div
               className={`break-words text-xs ${state === "fail" ? "text-danger-600 dark:text-danger-400" : "text-default-500"}`}
             >
               {sub}
-              {item.inUse && (
-                <b className="font-semibold text-teal-600 dark:text-teal-400">
-                  {sub ? " · " : ""}在用
-                </b>
-              )}
             </div>
           )}
         </div>

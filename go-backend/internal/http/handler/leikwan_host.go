@@ -112,7 +112,27 @@ type lkForwardView struct {
 	Policy     string `json:"policy,omitempty"`
 	UDP        string `json:"udp,omitempty"`
 	Running    bool   `json:"running"`
+	// Plan 310: the LeiKwan client's own 全程 (agent ≥ plan 310, raw; the
+	// rule list picks with lkClientPick like 诊断).
+	RttTCP *lkAgentClient `json:"rttTcp,omitempty"`
+	RttUDP *lkAgentClient `json:"rttUdp,omitempty"`
+	// Plan 310 r3 (agent state.rtt ≥ 2): 入口段 of the UDP selection's ingress
+	// (kernel srtt of the client's connections to it; conns 0 = none now).
+	Seg *lkAgentSeg `json:"seg,omitempty"`
 }
+
+// lkAgentSeg mirrors the agent's LKEntrySeg.
+type lkAgentSeg struct {
+	Endpoint string  `json:"endpoint"`
+	Ms       float64 `json:"ms,omitempty"`
+	MinMs    float64 `json:"minMs,omitempty"`
+	Conns    int     `json:"conns"`
+	Err      string  `json:"err,omitempty"`
+}
+
+// lkHostSegVersion: state.rtt of agents that report seg (plan 310 r3).
+const lkHostSegVersion = 2
+
 type lkStateView struct {
 	Host          string          `json:"host,omitempty"`
 	AgentVersion  string          `json:"agentVersion,omitempty"`
@@ -129,6 +149,8 @@ type lkStateView struct {
 	Coalesce      string          `json:"coalesce,omitempty"`
 	PhonePorts    []int           `json:"phonePorts,omitempty"`
 	Forwards      []lkForwardView `json:"forwards"`
+	// Plan 310: 1 = the forwards carry rttTcp / rttUdp (0 = older agent).
+	Rtt int `json:"rtt,omitempty"`
 }
 type lkManageView struct {
 	Manage  bool              `json:"manage"`

@@ -10,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -184,7 +185,7 @@ func (h *Handler) lineMonitorTargets() ([]linemon.Target, bool, error) {
 		pr.mu.Unlock()
 	}()
 	for _, line := range lines {
-		if line.Paused == 1 {
+		if line.Paused == 1 || line.Kind != "" { // plan 310 r3: 端内 lines are passive
 			continue
 		}
 		if line.PortMode == model.LinePortAuto && line.TargetNodeID > 0 {
@@ -484,6 +485,9 @@ type lineMonitorLineView struct {
 	// CheckPort (plan 255 part 2, auto lines): the reserved port as the
 	// panel and the target agent see it.
 	CheckPort *lineMonitorCheckPortView `json:"checkPort,omitempty"`
+	// Plan 310 r3 (端内 lines): the 专线's name (SourceName = the fixed 利群入口,
+	// empty = auto).
+	LeiKwanLineName string `json:"leikwanLineName,omitempty"`
 }
 
 type lineMonitorCheckPortView struct {
@@ -541,8 +545,29 @@ func (h *Handler) lineMonitorList(w http.ResponseWriter, r *http.Request) {
 		live[k] = v
 	}
 	rt.mu.Unlock()
+	var lkLines map[int64]model.LeiKwanLine
+	var lkEntries map[int64]leiKwanEntryNode
 	byChart := make(map[int64][]lineMonitorLineView)
 	for _, l := range lines {
+		if l.Kind == model.LineKindLeiKwanEndIn {
+			if lkLines == nil {
+				lkLines, lkEntries = h.lineMonitorEndInRefs()
+			}
+			v := lineMonitorLineView{LineMonitorLine: l, LeiKwanLineName: lkLines[l.LeiKwanLineID].Name, SourceOnline: true}
+			if v.LeiKwanLineName == "" {
+				v.LeiKwanLineName = fmt.Sprintf("专线 #%d（已删除）", l.LeiKwanLineID)
+			}
+			if l.SourceNodeID > 0 {
+				e := lkEntries[l.SourceNodeID]
+				v.SourceName, v.SourceOnline = e.Name, e.Online
+			}
+			if lv, ok := live[l.ID]; ok {
+				lv := lv
+				v.Live = &lv
+			}
+			byChart[l.ChartID] = append(byChart[l.ChartID], v)
+			continue
+		}
 		v := lineMonitorLineView{LineMonitorLine: l, EffectiveHost: lineMonitorEffectiveHost(l, nodes)}
 		if src := nodes[l.SourceNodeID]; src != nil {
 			v.SourceName, v.SourceRemote = src.Name, src.IsRemote == 1
@@ -617,8 +642,24 @@ func (h *Handler) lineMonitorOptions(w http.ResponseWriter, r *http.Request) {
 		o.CheckPort = o.Online && h.monitorPortCapable(n.ID)
 		out = append(out, o)
 	}
+	// Plan 310 r3: the 专线 and 利群入口 an 「利群专线端内」 line can use.
+	lkLines, lkEntries := h.lineMonitorEndInRefs()
+	lkLineOpts := make([]map[string]interface{}, 0, len(lkLines))
+	for _, l := range lkLines {
+		lkLineOpts = append(lkLineOpts, map[string]interface{}{"id": l.ID, "name": l.Name, "routeLabel": l.RouteLabel, "status": l.Status, "inx": l.Inx})
+	}
+	sort.Slice(lkLineOpts, func(i, j int) bool {
+		a, b := lkLineOpts[i], lkLineOpts[j]
+		return a["inx"].(int) < b["inx"].(int) || a["inx"].(int) == b["inx"].(int) && a["id"].(int64) < b["id"].(int64)
+	})
+	lkEntryOpts := make([]map[string]interface{}, 0, len(lkEntries))
+	for _, e := range lkEntries {
+		lkEntryOpts = append(lkEntryOpts, map[string]interface{}{"id": e.ID, "name": e.Name, "online": e.Online})
+	}
+	sort.Slice(lkEntryOpts, func(i, j int) bool { return lkEntryOpts[i]["id"].(int64) < lkEntryOpts[j]["id"].(int64) })
 	response.WriteJSON(w, response.OK(map[string]interface{}{"nodes": out, "sshHint": lineMonitorSSHHint,
-		"checkPortUnsupported": lineMonitorUnsupported, "checkWindows": linemon.CheckWindows, "defaultCheckWindow": linemon.DefaultCheckWindow}))
+		"checkPortUnsupported": lineMonitorUnsupported, "checkWindows": linemon.CheckWindows, "defaultCheckWindow": linemon.DefaultCheckWindow,
+		"leikwanLines": lkLineOpts, "leikwanEntries": lkEntryOpts}))
 }
 
 func firstNonBlank(values ...string) string {
@@ -669,6 +710,10 @@ type lineMonitorLineInput struct {
 	PortMode    string `json:"portMode"`
 	CheckWindow int    `json:"checkWindow"`
 	CheckAllow  bool   `json:"checkAllow"`
+	// Plan 310 r3: kind "lk_endin" = 「利群专线端内」 of LeiKwanLineID
+	// (SourceNodeID = a 利群入口, 0 = auto).
+	Kind          string `json:"kind"`
+	LeiKwanLineID int64  `json:"leikwanLineId"`
 }
 
 type lineMonitorSaveInput struct {
@@ -702,7 +747,7 @@ func validLineMonitorHost(host string) bool {
 
 // validateLineMonitorSave checks a chart + lines; returns the rows to store
 // and the non-blocking warnings (port 22).
-func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecord) (string, []model.LineMonitorLine, []string, error) {
+func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecord, lkLines map[int64]model.LeiKwanLine, lkEntries map[int64]leiKwanEntryNode) (string, []model.LineMonitorLine, []string, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return "", nil, nil, errors.New("请填写监测图名称")
@@ -721,6 +766,22 @@ func validateLineMonitorSave(in lineMonitorSaveInput, nodes map[int64]*nodeRecor
 	out := make([]model.LineMonitorLine, 0, len(in.Lines))
 	for i, l := range in.Lines {
 		n := i + 1
+		switch l.Kind {
+		case "":
+		case model.LineKindLeiKwanEndIn:
+			row, key, err := validateLineMonitorEndIn(n, l, lkLines, lkEntries)
+			if err != nil {
+				return "", nil, nil, err
+			}
+			if seen[key] {
+				return "", nil, nil, fmt.Errorf("第 %d 条线路与前面的线路重复", n)
+			}
+			seen[key] = true
+			out = append(out, row)
+			continue
+		default:
+			return "", nil, nil, fmt.Errorf("第 %d 条线路：线路类型不正确", n)
+		}
 		src := nodes[l.SourceNodeID]
 		if src == nil {
 			return "", nil, nil, fmt.Errorf("第 %d 条线路：请选择源节点", n)
@@ -818,7 +879,8 @@ func (h *Handler) lineMonitorChartSave(w http.ResponseWriter, r *http.Request) {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return
 	}
-	name, lines, warnings, err := validateLineMonitorSave(in, nodeRecordMap(list))
+	lkLines, lkEntries := h.lineMonitorEndInRefs()
+	name, lines, warnings, err := validateLineMonitorSave(in, nodeRecordMap(list), lkLines, lkEntries)
 	if err != nil {
 		response.WriteJSON(w, response.ErrDefault(err.Error()))
 		return
@@ -954,6 +1016,9 @@ type lineMonitorData struct {
 	Live    map[int64]lineMonitorLive `json:"live"`
 	QueryMs float64                   `json:"queryMs"`
 	Cached  bool                      `json:"cached,omitempty"`
+	// ViaNames (plan 310 r3, charts with 端内 lines): 利群入口 node id → name
+	// for the per-bucket via ids.
+	ViaNames map[int64]string `json:"viaNames,omitempty"`
 }
 
 // lineMonitorWindow resolves the requested range to an aligned window within
@@ -1048,13 +1113,49 @@ func (h *Handler) lineMonitorQuery(chartID int64, rangeKey string, reqFrom, reqT
 	if err != nil {
 		return nil, err
 	}
+	// Plan 310 r3: a chart with an 端内 line (one sample a minute) uses buckets
+	// of at least 60 s, so its line has no artificial gaps.
+	chartSlot := lineMonitorChartSlot(lines)
+	if step < chartSlot {
+		step = chartSlot
+		from, to = linemon.AlignWindow(from, to, step)
+	}
 	start := time.Now()
-	data := &lineMonitorData{ChartID: chartID, From: from, To: to, Step: step, Now: now, Slot: linemon.SlotSeconds,
+	data := &lineMonitorData{ChartID: chartID, From: from, To: to, Step: step, Now: now, Slot: chartSlot,
 		Lines: make([]linemon.Series, 0, len(lines)), Stats: make([]linemon.LineStats, 0, len(lines))}
 	var eventLists [][]linemon.Event
 	for _, l := range lines {
-		acc := linemon.NewAccumulator(l.ID, from, to, step, l.CreatedTime/1000, now)
+		acc := linemon.NewAccumulatorSlot(l.ID, from, to, step, l.CreatedTime/1000, now, lineMonitorLineSlot(l))
 		lastTS := int64(math.MinInt64)
+		endIn := l.Kind == model.LineKindLeiKwanEndIn
+		if endIn {
+			// Parts first (their own key range), then the samples.
+			lastPart := int64(math.MinInt64)
+			if err := h.repo.ReadLineMonitorParts(l.ID, from, to, func(p repo.LineMonitorPartRow) {
+				acc.AddPart(p.TS, p.Total10, p.Seg10, p.ViaNode)
+				lastPart = p.TS
+				if p.ViaNode > 0 {
+					if data.ViaNames == nil {
+						data.ViaNames = map[int64]string{}
+					}
+					data.ViaNames[p.ViaNode] = ""
+				}
+			}); err != nil {
+				return nil, err
+			}
+			for _, s := range h.lineMonitorPending(l.ID) {
+				if s.Part != nil && s.TS > lastPart && s.TS >= from && s.TS < to {
+					acc.AddPart(s.TS, s.Part.Total10, s.Part.Seg10, s.Part.ViaNode)
+					lastPart = s.TS
+					if s.Part.ViaNode > 0 {
+						if data.ViaNames == nil {
+							data.ViaNames = map[int64]string{}
+						}
+						data.ViaNames[s.Part.ViaNode] = ""
+					}
+				}
+			}
+		}
 		if err := h.repo.ReadLineMonitorSamples(l.ID, from, to, func(row repo.LineMonitorSampleRow) {
 			acc.Add(row.TS, row.Status, row.Ms10)
 			lastTS = row.TS
@@ -1073,6 +1174,15 @@ func (h *Handler) lineMonitorQuery(chartID int64, rangeKey string, reqFrom, reqT
 		eventLists = append(eventLists, events)
 	}
 	data.Events = linemon.NewestEvents(eventLists, lineMonitorMaxEvents)
+	if len(data.ViaNames) > 0 {
+		if list, err := h.repo.ListLineMonitorNodeRecords(); err == nil {
+			for _, n := range list {
+				if _, ok := data.ViaNames[n.ID]; ok {
+					data.ViaNames[n.ID] = n.Name
+				}
+			}
+		}
+	}
 	data.QueryMs = float64(time.Since(start).Microseconds()) / 1000
 	if long {
 		rt.cacheMu.Lock()

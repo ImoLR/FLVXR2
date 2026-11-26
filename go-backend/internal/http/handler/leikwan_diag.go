@@ -478,13 +478,19 @@ func lkDiagClientOK(c *lkAgentClient) bool {
 // answered probes (it also gives loss), else its last TCP selection, else a
 // UDP value without probe counters.
 func lkDiagSource(d *lkAgentDiag) (string, *lkAgentClient) {
+	return lkClientPick(d.UDP, d.TCP)
+}
+
+// lkClientPick: the one UDP-vs-TCP choice (+ the sanity cap) shared by 诊断
+// and the plan-310 rule latency tag, so the two always agree.
+func lkClientPick(udp, tcp *lkAgentClient) (string, *lkAgentClient) {
 	switch {
-	case lkDiagClientOK(d.UDP) && d.UDP.Sent > 0 && d.UDP.Recv > 0:
-		return "udp", d.UDP
-	case lkDiagClientOK(d.TCP):
-		return "tcp", d.TCP
-	case lkDiagClientOK(d.UDP):
-		return "udp", d.UDP
+	case lkDiagClientOK(udp) && udp.Sent > 0 && udp.Recv > 0:
+		return "udp", udp
+	case lkDiagClientOK(tcp):
+		return "tcp", tcp
+	case lkDiagClientOK(udp):
+		return "udp", udp
 	}
 	return "", nil
 }

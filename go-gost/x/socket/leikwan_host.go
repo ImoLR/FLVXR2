@@ -126,7 +126,34 @@ type LKForward struct {
 	Policy     string `json:"policy,omitempty"`
 	UDP        string `json:"udp,omitempty"`
 	Running    bool   `json:"running"`
+	// Plan 310: the LeiKwan client's own measurement of this forward (entry →
+	// 专线出口, status.json latest_tcp / active_udp), read with the status file
+	// above. Raw: the panel picks UDP vs TCP and drops bogus values with the
+	// same rule as 诊断 (lkDiagSource), so the two always agree.
+	RttTCP *LKDiagClient `json:"rttTcp,omitempty"`
+	RttUDP *LKDiagClient `json:"rttUdp,omitempty"`
+	// Plan 310 r3: 入口段 of the ingress the client's UDP selection uses
+	// (端内 = rttUdp − seg on the panel). nil = no UDP selection / its
+	// ingress is unknown.
+	Seg *LKEntrySeg `json:"seg,omitempty"`
 }
+
+// LKEntrySeg (plan 310 r3): 入口段 = the kernel's smoothed rtt (tcp_info,
+// sock_diag) of the TCP connections this host already has to that ingress —
+// the LeiKwan client keeps long-lived connections to its ingresses. Read-only:
+// no probe, no new connection. Conns 0 = no connection to it right now (no
+// 入口段 this minute).
+type LKEntrySeg struct {
+	Endpoint string  `json:"endpoint"`        // ingress "IP:port"
+	Ms       float64 `json:"ms,omitempty"`    // lower median srtt of those connections
+	MinMs    float64 `json:"minMs,omitempty"` // lowest srtt
+	Conns    int     `json:"conns"`
+	Err      string  `json:"err,omitempty"` // the connection table could not be read
+}
+
+// lkHostRttVersion (LKHostState.Rtt): 1 = this agent reports rttTcp /
+// rttUdp; 2 = also seg (plan 310 r3).
+const lkHostRttVersion = 2
 
 // LKHostState: secret-free status of the LeiKwan stack on this host.
 type LKHostState struct {
@@ -145,6 +172,9 @@ type LKHostState struct {
 	Coalesce      string      `json:"coalesce,omitempty"`
 	PhonePorts    []int       `json:"phonePorts,omitempty"`
 	Forwards      []LKForward `json:"forwards"`
+	// Plan 310: lkHostRttVersion when the forwards carry the client rtt
+	// (0 = older agent: no tag; 1 = rtt only, no 入口段 → no 端内).
+	Rtt int `json:"rtt,omitempty"`
 }
 
 // LKManageStatus: what the agent did with the panel's wanted content.
@@ -829,6 +859,17 @@ func lkReportKey(r *LeiKwanHostReport) string {
 	c := *r
 	c.At = 0
 	c.Traffic = nil
+	// Plan 310: the client rtt moves every minute; it rides along with the
+	// reports that go out anyway (traffic / 5 min / a real change) and never
+	// makes one due by itself.
+	if len(c.State.Forwards) > 0 {
+		fw := make([]LKForward, len(c.State.Forwards))
+		copy(fw, c.State.Forwards)
+		for i := range fw {
+			fw[i].RttTCP, fw[i].RttUDP, fw[i].Seg = nil, nil, nil // r3: 入口段 too
+		}
+		c.State.Forwards = fw
+	}
 	raw, _ := json.Marshal(c)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

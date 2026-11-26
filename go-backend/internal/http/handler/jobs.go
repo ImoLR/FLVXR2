@@ -65,6 +65,10 @@ func (h *Handler) StartBackgroundJobs() {
 	// Plan 269: 利群主机 sync + blocks (every 5 min, 4 entry hosts).
 	h.jobsWG.Add(1)
 	go h.runLeiKwanHostLoop(ctx)
+	// Plan 310 r3: 利群 专线出口 → 落地 (1 echo / min per landing + exit) and
+	// the 端内 readings / 线路监测 samples (memory; idle = 1 query a minute).
+	h.jobsWG.Add(1)
+	go h.runLeiKwanLandLoop(ctx)
 	// Plan 273: 利群套餐流量 / 设备 reads (≤ 2 per 2.5 min round per account).
 	h.jobsWG.Add(1)
 	go h.runLeiKwanUsageLoop(ctx)

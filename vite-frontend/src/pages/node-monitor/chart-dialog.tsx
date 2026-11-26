@@ -1,15 +1,19 @@
 import type {
+  LineKind,
   LineMonitorChart,
+  LineMonitorLeiKwanLine,
   LineMonitorLineInput,
   LineMonitorNodeOption,
   LineMonitorPortHint,
   LinePortMode,
 } from "@/api/line-monitor";
+import type { EndInEntry } from "./endin-line";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 import { CheckCommandPanel, LANDING_SCAN_HINT, OTA_HINT } from "./check-port";
+import { EndInLineFields, LineKindToggle } from "./endin-line";
 import { lineColor } from "./format";
 
 import {
@@ -50,6 +54,15 @@ interface DraftLine {
   checkAllow: boolean | null; // null = the panel's default
   origAutoPort?: number; // the reserved check port of a saved auto line
   origTarget?: number;
+  // plan 310 r3: 「利群专线端内」 (sourceNodeId = fixed 利群入口, 0 = auto)
+  kind: LineKind;
+  leikwanLineId: number;
+}
+
+/** Plan 310 r3: a new chart prefilled (「利群专线端内」 one click). */
+export interface ChartPrefill {
+  name: string;
+  lines: { kind: LineKind; leikwanLineId: number; sourceNodeId: number }[];
 }
 
 const PORT_MODES: { key: LinePortMode; label: string }[] = [
@@ -71,6 +84,10 @@ interface Props {
   dark: boolean;
   onClose: () => void;
   onSaved: (id: number) => void;
+  // plan 310 r3
+  lkLines?: LineMonitorLeiKwanLine[];
+  lkEntries?: EndInEntry[];
+  prefill?: ChartPrefill | null;
 }
 
 export function ChartDialog({
@@ -83,6 +100,9 @@ export function ChartDialog({
   dark,
   onClose,
   onSaved,
+  lkLines = [],
+  lkEntries = [],
+  prefill,
 }: Props) {
   const [name, setName] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([]);
@@ -121,6 +141,28 @@ export function ChartDialog({
           checkAllow: l.targetNodeId > 0 ? null : l.checkAllow === 1,
           origAutoPort: l.portMode === "auto" ? l.port : undefined,
           origTarget: l.targetNodeId,
+          kind: l.kind === "lk_endin" ? "lk_endin" : "",
+          leikwanLineId: l.leikwanLineId || 0,
+        })),
+      );
+    } else if (prefill) {
+      setName(prefill.name);
+      setLines(
+        prefill.lines.map((p, i) => ({
+          key: newKey(),
+          color: i,
+          sourceNodeId: p.sourceNodeId,
+          targetType: "node",
+          targetNodeId: 0,
+          host: "",
+          port: "",
+          label: "",
+          paused: false,
+          portMode: "auto",
+          checkWindow: 24,
+          checkAllow: null,
+          kind: p.kind,
+          leikwanLineId: p.leikwanLineId,
         })),
       );
     } else {
@@ -139,10 +181,12 @@ export function ChartDialog({
           portMode: "auto",
           checkWindow: 24,
           checkAllow: null,
+          kind: "",
+          leikwanLineId: 0,
         },
       ]);
     }
-  }, [isOpen, chart]);
+  }, [isOpen, chart, prefill]);
 
   // Port suggestions of every node target in the dialog (one request per node).
   useEffect(() => {
@@ -219,6 +263,19 @@ export function ChartDialog({
   const save = async () => {
     setError("");
     const payload: LineMonitorLineInput[] = lines.map((l) => {
+      if (l.kind === "lk_endin")
+        return {
+          id: l.id,
+          kind: "lk_endin",
+          leikwanLineId: l.leikwanLineId,
+          sourceNodeId: l.sourceNodeId,
+          targetType: "node",
+          targetNodeId: 0,
+          host: "",
+          port: 0,
+          label: l.label.trim(),
+          paused: l.paused,
+        };
       const auto = l.targetType === "node" && l.portMode === "auto";
 
       return {
@@ -254,7 +311,11 @@ export function ChartDialog({
     for (const w of res.data.warnings ?? [])
       toast(w, { icon: "⚠️", duration: 6000 });
     toast.success(
-      chart ? "监测图已保存" : "监测图已创建，约 30 秒后出现第一批数据",
+      chart
+        ? "监测图已保存"
+        : lines.every((l) => l.kind === "lk_endin")
+          ? "监测图已创建，约 1 分钟后出现第一批数据"
+          : "监测图已创建，约 30 秒后出现第一批数据",
     );
     const checks = res.data.checks ?? [];
     const bad = checks.filter((c) => c.state !== "ok");
@@ -288,8 +349,11 @@ export function ChartDialog({
             </h2>
             <p className="text-xs font-normal text-default-500">
               每条线路每 30 秒从源节点 TCP
-              连接目标一次，所有线路画在同一张图里对比。最多 {maxPerChart} 条 /
-              图，全部监测图合计 {maxTotal} 条（已用{" "}
+              连接目标一次，所有线路画在同一张图里对比
+              {lkLines.length > 0
+                ? "（「利群专线端内」每分钟从利群入口的上报读一次，不发探测）"
+                : ""}
+              。最多 {maxPerChart} 条 / 图，全部监测图合计 {maxTotal} 条（已用{" "}
               {othersTotal + lines.length}）。
             </p>
           </ModalHeader>
@@ -352,284 +416,332 @@ export function ChartDialog({
                       )}
                     </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Select
-                      isSearchable
-                      label="源节点（由它发起 TCP 连接）"
-                      placeholder="选择源节点"
-                      searchPlaceholder="搜索节点"
-                      selectedKeys={
-                        l.sourceNodeId ? [String(l.sourceNodeId)] : []
-                      }
-                      onSelectionChange={(keys) =>
+                  {lkLines.length > 0 && (
+                    <LineKindToggle
+                      kind={l.kind}
+                      onChange={(kind) =>
                         update(l.key, {
-                          sourceNodeId: Number(Array.from(keys)[0] || 0),
+                          kind,
+                          sourceNodeId: 0,
+                          leikwanLineId:
+                            kind === "lk_endin" ? l.leikwanLineId || 0 : 0,
                         })
                       }
-                    >
-                      {localNodes.map((n) => (
-                        <SelectItem key={String(n.id)} textValue={n.name}>
-                          {n.name}
-                          {n.online ? "" : "（离线）"}
-                        </SelectItem>
-                      ))}
-                    </Select>
-                    <div className="space-y-1">
-                      <span className="text-sm font-medium">目标</span>
-                      <div className="flex gap-1.5">
-                        <Button
-                          color={
-                            l.targetType === "node" ? "primary" : "default"
+                    />
+                  )}
+                  {l.kind === "lk_endin" ? (
+                    <EndInLineFields
+                      entries={lkEntries}
+                      label={l.label}
+                      leikwanLineId={l.leikwanLineId}
+                      lines={lkLines}
+                      sourceNodeId={l.sourceNodeId}
+                      onChange={(p) => update(l.key, p)}
+                    />
+                  ) : (
+                    <>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Select
+                          isSearchable
+                          label="源节点（由它发起 TCP 连接）"
+                          placeholder="选择源节点"
+                          searchPlaceholder="搜索节点"
+                          selectedKeys={
+                            l.sourceNodeId ? [String(l.sourceNodeId)] : []
                           }
-                          size="sm"
-                          variant={l.targetType === "node" ? "solid" : "flat"}
-                          onPress={() =>
+                          onSelectionChange={(keys) =>
                             update(l.key, {
-                              targetType: "node",
-                              host: l.targetType === "node" ? l.host : "",
+                              sourceNodeId: Number(Array.from(keys)[0] || 0),
                             })
                           }
                         >
-                          FLVX 节点
-                        </Button>
-                        <Button
-                          color={
-                            l.targetType === "custom" ? "primary" : "default"
-                          }
-                          data-testid="lm-target-custom"
-                          size="sm"
-                          variant={l.targetType === "custom" ? "solid" : "flat"}
-                          onPress={() =>
-                            update(l.key, {
-                              targetType: "custom",
-                              targetNodeId: 0,
-                              host: l.targetType === "custom" ? l.host : "",
-                            })
-                          }
-                        >
-                          自定义地址
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  {l.targetType === "node" ? (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <Select
-                        isSearchable
-                        label="目标节点"
-                        placeholder="选择目标节点"
-                        searchPlaceholder="搜索节点"
-                        selectedKeys={
-                          l.targetNodeId ? [String(l.targetNodeId)] : []
-                        }
-                        onSelectionChange={(keys) => {
-                          const id = Number(Array.from(keys)[0] || 0);
-
-                          update(l.key, {
-                            targetNodeId: id,
-                            // an old agent cannot open a check port
-                            portMode:
-                              l.portMode === "auto" && id && !autoAllowed(id)
-                                ? "existing"
-                                : l.portMode,
-                          });
-                        }}
-                      >
-                        {nodes
-                          .filter((n) => n.id !== l.sourceNodeId)
-                          .map((n) => (
+                          {localNodes.map((n) => (
                             <SelectItem key={String(n.id)} textValue={n.name}>
                               {n.name}
+                              {n.online ? "" : "（离线）"}
                             </SelectItem>
                           ))}
-                      </Select>
-                      <Input
-                        description="留空 = 跟随该节点的地址（节点改地址后自动跟着变）"
-                        label="目标地址（可改）"
-                        placeholder={
-                          target
-                            ? `跟随节点地址：${target.address}`
-                            : "先选择目标节点"
-                        }
-                        value={l.host}
-                        onChange={(e) =>
-                          update(l.key, { host: e.target.value })
-                        }
-                      />
-                    </div>
-                  ) : (
-                    <Input
-                      description="不是 FLVX 节点的机器，例如一台 HiNet 家宽。只填 IP 或域名，不含端口。"
-                      label="目标地址"
-                      placeholder="例如 203.0.113.10 或 hinet.example.com"
-                      value={l.host}
-                      onChange={(e) => update(l.key, { host: e.target.value })}
-                    />
-                  )}
-                  {l.targetType === "node" && (
-                    <div className="space-y-1" data-testid="lm-port-modes">
-                      <span className="text-sm font-medium">端口</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {PORT_MODES.map((m) => {
-                          const disabled =
-                            m.key === "auto" &&
-                            l.targetNodeId > 0 &&
-                            !autoAllowed(l.targetNodeId);
-
-                          return (
+                        </Select>
+                        <div className="space-y-1">
+                          <span className="text-sm font-medium">目标</span>
+                          <div className="flex gap-1.5">
                             <Button
-                              key={m.key}
                               color={
-                                l.portMode === m.key ? "primary" : "default"
+                                l.targetType === "node" ? "primary" : "default"
                               }
-                              data-testid={`lm-mode-${m.key}`}
-                              isDisabled={disabled}
                               size="sm"
-                              variant={l.portMode === m.key ? "solid" : "flat"}
-                              onPress={() => update(l.key, { portMode: m.key })}
+                              variant={
+                                l.targetType === "node" ? "solid" : "flat"
+                              }
+                              onPress={() =>
+                                update(l.key, {
+                                  targetType: "node",
+                                  host: l.targetType === "node" ? l.host : "",
+                                })
+                              }
                             >
-                              {m.label}
+                              FLVX 节点
                             </Button>
-                          );
-                        })}
-                      </div>
-                      {target &&
-                        !autoAllowed(l.targetNodeId) &&
-                        !target.remote && (
-                          <p
-                            className="text-xs text-default-500"
-                            data-testid="lm-ota-hint"
-                          >
-                            「自动开启检测端口」不可用：{OTA_HINT}
-                          </p>
-                        )}
-                    </div>
-                  )}
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {l.targetType === "node" && l.portMode === "auto" ? (
-                      <div
-                        className="rounded-lg bg-default-100/70 px-3 py-2 text-xs text-default-600 dark:bg-default-50/10"
-                        data-testid="lm-auto-info"
-                      >
-                        {l.origAutoPort && l.origTarget === l.targetNodeId ? (
-                          <div className="font-semibold text-default-700">
-                            检测端口 :{l.origAutoPort}（已分配，保存后不变）
+                            <Button
+                              color={
+                                l.targetType === "custom"
+                                  ? "primary"
+                                  : "default"
+                              }
+                              data-testid="lm-target-custom"
+                              size="sm"
+                              variant={
+                                l.targetType === "custom" ? "solid" : "flat"
+                              }
+                              onPress={() =>
+                                update(l.key, {
+                                  targetType: "custom",
+                                  targetNodeId: 0,
+                                  host: l.targetType === "custom" ? l.host : "",
+                                })
+                              }
+                            >
+                              自定义地址
+                            </Button>
                           </div>
-                        ) : (
-                          <div className="font-semibold text-default-700">
-                            保存后自动分配检测端口
-                          </div>
-                        )}
-                        <div>
-                          从目标节点的端口段里挑一个空闲端口，通过节点 agent
-                          开启：只接受连接、立刻关闭，不读写任何数据；保存后从源节点验证一次。
                         </div>
-                        {target && !target.online && (
-                          <div className="mt-1 text-amber-700 dark:text-amber-300">
-                            目标节点离线：端口先保留，节点上线后自动开启。
-                          </div>
-                        )}
                       </div>
-                    ) : (
-                      <div className="space-y-1">
+                      {l.targetType === "node" ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Select
+                            isSearchable
+                            label="目标节点"
+                            placeholder="选择目标节点"
+                            searchPlaceholder="搜索节点"
+                            selectedKeys={
+                              l.targetNodeId ? [String(l.targetNodeId)] : []
+                            }
+                            onSelectionChange={(keys) => {
+                              const id = Number(Array.from(keys)[0] || 0);
+
+                              update(l.key, {
+                                targetNodeId: id,
+                                // an old agent cannot open a check port
+                                portMode:
+                                  l.portMode === "auto" &&
+                                  id &&
+                                  !autoAllowed(id)
+                                    ? "existing"
+                                    : l.portMode,
+                              });
+                            }}
+                          >
+                            {nodes
+                              .filter((n) => n.id !== l.sourceNodeId)
+                              .map((n) => (
+                                <SelectItem
+                                  key={String(n.id)}
+                                  textValue={n.name}
+                                >
+                                  {n.name}
+                                </SelectItem>
+                              ))}
+                          </Select>
+                          <Input
+                            description="留空 = 跟随该节点的地址（节点改地址后自动跟着变）"
+                            label="目标地址（可改）"
+                            placeholder={
+                              target
+                                ? `跟随节点地址：${target.address}`
+                                : "先选择目标节点"
+                            }
+                            value={l.host}
+                            onChange={(e) =>
+                              update(l.key, { host: e.target.value })
+                            }
+                          />
+                        </div>
+                      ) : (
                         <Input
-                          inputMode="numeric"
-                          label="端口"
-                          placeholder={
-                            l.targetType === "node"
-                              ? l.portMode === "existing"
-                                ? "选下方正在监听的端口"
-                                : "目标上正在监听的端口"
-                              : "对方正在监听的端口，或点「自动选端口」"
-                          }
-                          value={l.port}
+                          description="不是 FLVX 节点的机器，例如一台 HiNet 家宽。只填 IP 或域名，不含端口。"
+                          label="目标地址"
+                          placeholder="例如 203.0.113.10 或 hinet.example.com"
+                          value={l.host}
                           onChange={(e) =>
-                            update(l.key, {
-                              port: e.target.value
-                                .replace(/[^0-9]/g, "")
-                                .slice(0, 5),
-                            })
+                            update(l.key, { host: e.target.value })
                           }
                         />
-                        {l.port.trim() === "22" && (
-                          <p
-                            className="text-xs font-medium text-amber-600 dark:text-amber-300"
-                            data-testid="lm-ssh-hint"
+                      )}
+                      {l.targetType === "node" && (
+                        <div className="space-y-1" data-testid="lm-port-modes">
+                          <span className="text-sm font-medium">端口</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {PORT_MODES.map((m) => {
+                              const disabled =
+                                m.key === "auto" &&
+                                l.targetNodeId > 0 &&
+                                !autoAllowed(l.targetNodeId);
+
+                              return (
+                                <Button
+                                  key={m.key}
+                                  color={
+                                    l.portMode === m.key ? "primary" : "default"
+                                  }
+                                  data-testid={`lm-mode-${m.key}`}
+                                  isDisabled={disabled}
+                                  size="sm"
+                                  variant={
+                                    l.portMode === m.key ? "solid" : "flat"
+                                  }
+                                  onPress={() =>
+                                    update(l.key, { portMode: m.key })
+                                  }
+                                >
+                                  {m.label}
+                                </Button>
+                              );
+                            })}
+                          </div>
+                          {target &&
+                            !autoAllowed(l.targetNodeId) &&
+                            !target.remote && (
+                              <p
+                                className="text-xs text-default-500"
+                                data-testid="lm-ota-hint"
+                              >
+                                「自动开启检测端口」不可用：{OTA_HINT}
+                              </p>
+                            )}
+                        </div>
+                      )}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {l.targetType === "node" && l.portMode === "auto" ? (
+                          <div
+                            className="rounded-lg bg-default-100/70 px-3 py-2 text-xs text-default-600 dark:bg-default-50/10"
+                            data-testid="lm-auto-info"
                           >
-                            ⚠ {SSH_HINT}
+                            {l.origAutoPort &&
+                            l.origTarget === l.targetNodeId ? (
+                              <div className="font-semibold text-default-700">
+                                检测端口 :{l.origAutoPort}（已分配，保存后不变）
+                              </div>
+                            ) : (
+                              <div className="font-semibold text-default-700">
+                                保存后自动分配检测端口
+                              </div>
+                            )}
+                            <div>
+                              从目标节点的端口段里挑一个空闲端口，通过节点 agent
+                              开启：只接受连接、立刻关闭，不读写任何数据；保存后从源节点验证一次。
+                            </div>
+                            {target && !target.online && (
+                              <div className="mt-1 text-amber-700 dark:text-amber-300">
+                                目标节点离线：端口先保留，节点上线后自动开启。
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <Input
+                              inputMode="numeric"
+                              label="端口"
+                              placeholder={
+                                l.targetType === "node"
+                                  ? l.portMode === "existing"
+                                    ? "选下方正在监听的端口"
+                                    : "目标上正在监听的端口"
+                                  : "对方正在监听的端口，或点「自动选端口」"
+                              }
+                              value={l.port}
+                              onChange={(e) =>
+                                update(l.key, {
+                                  port: e.target.value
+                                    .replace(/[^0-9]/g, "")
+                                    .slice(0, 5),
+                                })
+                              }
+                            />
+                            {l.port.trim() === "22" && (
+                              <p
+                                className="text-xs font-medium text-amber-600 dark:text-amber-300"
+                                data-testid="lm-ssh-hint"
+                              >
+                                ⚠ {SSH_HINT}
+                              </p>
+                            )}
+                            {l.targetType === "custom" && (
+                              <button
+                                className={`rounded-full px-2 text-xs font-semibold leading-[20px] ${landingToneClass.purple}`}
+                                data-testid="lm-suggest-port"
+                                type="button"
+                                onClick={() => void suggestPort(l)}
+                              >
+                                自动选端口
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <Input
+                          label="备注（可选）"
+                          placeholder="图例里显示，例如：黑五"
+                          value={l.label}
+                          onChange={(e) =>
+                            update(l.key, { label: e.target.value })
+                          }
+                        />
+                      </div>
+                      {hints && l.portMode === "existing" && (
+                        <div className="space-y-1">
+                          <div
+                            className="flex flex-wrap items-center gap-1.5"
+                            data-testid="lm-port-hints"
+                          >
+                            <span className="text-xs text-default-500">
+                              该节点正在监听：
+                            </span>
+                            {hints.length === 0 && (
+                              <span className="text-xs text-default-400">
+                                面板里没有该节点的监听端口，请改用「自动开启检测端口」或手动填写
+                              </span>
+                            )}
+                            {hints.map((p) => (
+                              <button
+                                key={p.port}
+                                className={`rounded-full px-2 text-xs font-semibold leading-[20px] ${landingToneClass[p.kind === "tunnel" ? "teal" : p.kind === "landing" ? "cyan" : "purple"]} ${String(p.port) === l.port ? "ring-2 ring-primary/60" : ""}`}
+                                title={p.label}
+                                type="button"
+                                onClick={() =>
+                                  update(l.key, { port: String(p.port) })
+                                }
+                              >
+                                {p.port} · {p.label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="text-xs text-default-500">
+                            {LANDING_SCAN_HINT}
                           </p>
-                        )}
-                        {l.targetType === "custom" && (
-                          <button
-                            className={`rounded-full px-2 text-xs font-semibold leading-[20px] ${landingToneClass.purple}`}
-                            data-testid="lm-suggest-port"
-                            type="button"
-                            onClick={() => void suggestPort(l)}
-                          >
-                            自动选端口
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    <Input
-                      label="备注（可选）"
-                      placeholder="图例里显示，例如：黑五"
-                      value={l.label}
-                      onChange={(e) => update(l.key, { label: e.target.value })}
-                    />
-                  </div>
-                  {hints && l.portMode === "existing" && (
-                    <div className="space-y-1">
-                      <div
-                        className="flex flex-wrap items-center gap-1.5"
-                        data-testid="lm-port-hints"
-                      >
-                        <span className="text-xs text-default-500">
-                          该节点正在监听：
-                        </span>
-                        {hints.length === 0 && (
-                          <span className="text-xs text-default-400">
-                            面板里没有该节点的监听端口，请改用「自动开启检测端口」或手动填写
-                          </span>
-                        )}
-                        {hints.map((p) => (
-                          <button
-                            key={p.port}
-                            className={`rounded-full px-2 text-xs font-semibold leading-[20px] ${landingToneClass[p.kind === "tunnel" ? "teal" : p.kind === "landing" ? "cyan" : "purple"]} ${String(p.port) === l.port ? "ring-2 ring-primary/60" : ""}`}
-                            title={p.label}
-                            type="button"
-                            onClick={() =>
-                              update(l.key, { port: String(p.port) })
+                        </div>
+                      )}
+                      {l.targetType === "custom" &&
+                        l.host.trim() !== "" &&
+                        Number(l.port) >= 1024 &&
+                        Number(l.port) !== 22 && (
+                          <CheckCommandPanel
+                            allow={l.checkAllow}
+                            host={l.host.trim()}
+                            port={Number(l.port)}
+                            sourceIds={customSources(l)}
+                            window={l.checkWindow}
+                            onChange={(p) =>
+                              update(l.key, {
+                                checkWindow: p.window ?? l.checkWindow,
+                                checkAllow:
+                                  p.allow !== undefined
+                                    ? p.allow
+                                    : l.checkAllow,
+                              })
                             }
-                          >
-                            {p.port} · {p.label}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-xs text-default-500">
-                        {LANDING_SCAN_HINT}
-                      </p>
-                    </div>
+                          />
+                        )}
+                    </>
                   )}
-                  {l.targetType === "custom" &&
-                    l.host.trim() !== "" &&
-                    Number(l.port) >= 1024 &&
-                    Number(l.port) !== 22 && (
-                      <CheckCommandPanel
-                        allow={l.checkAllow}
-                        host={l.host.trim()}
-                        port={Number(l.port)}
-                        sourceIds={customSources(l)}
-                        window={l.checkWindow}
-                        onChange={(p) =>
-                          update(l.key, {
-                            checkWindow: p.window ?? l.checkWindow,
-                            checkAllow:
-                              p.allow !== undefined ? p.allow : l.checkAllow,
-                          })
-                        }
-                      />
-                    )}
                   {src && !src.online && (
                     <p className="text-xs text-default-500">
                       源节点当前离线：离线期间显示为「无数据」，不算断流。
@@ -661,6 +773,8 @@ export function ChartDialog({
                       portMode: "auto",
                       checkWindow: 24,
                       checkAllow: null,
+                      kind: "",
+                      leikwanLineId: 0,
                     },
                   ])
                 }
@@ -687,7 +801,10 @@ export function ChartDialog({
           <ModalFooter>
             {saving &&
               lines.some(
-                (l) => l.targetType === "node" && l.portMode === "auto",
+                (l) =>
+                  l.kind !== "lk_endin" &&
+                  l.targetType === "node" &&
+                  l.portMode === "auto",
               ) && (
                 <span className="mr-auto text-xs text-default-500">
                   正在开启检测端口并从源节点验证…

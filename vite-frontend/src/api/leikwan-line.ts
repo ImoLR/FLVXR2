@@ -169,6 +169,8 @@ export interface LeiKwanLine {
   // Plan 269: 利群流量 billing, same meaning as tunnels (1 单向 / 2 双向).
   flowMode?: number;
   trafficRatio?: number;
+  // Plan 310 r3: 「端内 X ms」 on the header (null = no reading this minute).
+  endIn?: LeiKwanLineEndIn | null;
 }
 
 // Plan 268: any tunnel can be a line's 备线隧道; path + 线路分组 + the
@@ -280,6 +282,42 @@ export interface LeiKwanRuleBackup {
   sharedWith?: number[];
 }
 
+/** Plan 310: a rule's 全程 latency tag value. */
+export interface LeiKwanRuleLatency {
+  /** Plan 310 r3: 到落地 = totalMs + landMs */
+  ms: number;
+  src: "udp" | "tcp";
+  /** seconds since the client measured 全程 (as of the list call) */
+  ageS: number;
+  /** 全程: 入口机 → 利群专线出口 (UDP, the LeiKwan client's probe) */
+  totalMs: number;
+  /** 专线出口 → 落地 (the landing's ping of the exit, each minute) */
+  landMs: number;
+  landAgeS: number;
+  /** the exit does not answer ping: landMs = the connection rtt (may be high) */
+  approx?: boolean;
+}
+
+/** Plan 310 r3: 专线出口 → 落地 alone (the App's 手机本地 rows add the phone's 全程). */
+export interface LeiKwanLandLatency {
+  ms: number;
+  approx?: boolean;
+  ageS: number;
+}
+
+/** Plan 310 r3: the 专线 header's 「端内」 = 全程 (UDP) − 入口段 of one 利群入口. */
+export interface LeiKwanLineEndIn {
+  ms: number;
+  totalMs: number;
+  segMs: number;
+  nodeName: string;
+  ruleName?: string;
+  forwardId?: number;
+  ingress?: string;
+  ageS: number;
+  readings: number;
+}
+
 export interface LeiKwanRule {
   id: number;
   name: string;
@@ -333,6 +371,13 @@ export interface LeiKwanRule {
   ownerAdmin?: boolean;
   // Plan 301 (admin): 「只开主入口」 keeps it closed on the shown entry.
   entryClosed?: boolean;
+  // Plan 310 (admin + owner): 全程 of the shown entry (入口机 → 利群专线出口,
+  // the LeiKwan client's own measurement, from the entry's latest report) —
+  // or latencyNote = why there is none (入口机离线 / agent 需要升级 / …).
+  latency?: LeiKwanRuleLatency;
+  latencyNote?: string;
+  // Plan 310 r3: 专线出口 → 落地 alone (App 手机本地 rows).
+  landLatency?: LeiKwanLandLatency;
   // admin only
   userId?: number;
   userName?: string;

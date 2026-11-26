@@ -112,6 +112,9 @@ type Handler struct {
 	// Plan 255 「线路监测」: scheduler, write buffer, live state (memory only).
 	lineMonitor          lineMonitorRuntime
 	lineMonitorCleanupWG sync.WaitGroup
+	// Plan 310 r3: 利群 专线出口 → 落地 (1 ping / min per landing + exit) and
+	// the 端内 samples of 线路监测 (memory only).
+	lkLand lkLandRuntime
 
 	nodeGroupHandler *NodeGroupHandler
 	nodeTagHandler   *NodeTagHandler

@@ -90,6 +90,11 @@ type Series struct {
 	// neither 断流 nor measured for 可用率.
 	Closed []int32 `json:"closed"`
 	Exp    []int32 `json:"exp"` // slots expected (≥ measured); exp − ok − loss − down − closed = 无数据
+	// Plan 310 r3 (端内 lines only): per bucket the mean 全程 / 入口段 of its
+	// samples and the 利群入口 node of the newest one (0 = none).
+	Total Floats  `json:"total,omitempty"`
+	Seg   Floats  `json:"seg,omitempty"`
+	Via   []int64 `json:"via,omitempty"`
 }
 
 // LineStats are the 统计 numbers of one line over the range.
@@ -134,6 +139,14 @@ const maxEventsPerLine = 500
 // events in a single pass; nothing but the latency values (for p95) is kept.
 type Accumulator struct {
 	lineID, from, to, step, created, now int64
+	// slot = the line's sampling interval (30 s TCP, 60 s 端内); gap = two
+	// samples at most this far apart are neighbours.
+	slot, gap int64
+	// Plan 310 r3 parts (端内 lines): sums per bucket.
+	parts          bool
+	totSum, segSum []float64
+	partCnt        []int32
+	viaTS          []int64
 
 	series Series
 	sums   []float64
@@ -162,14 +175,24 @@ type Accumulator struct {
 // NewAccumulator: window [from, to) in steps of step seconds; created = the
 // line's creation (unix s, nothing expected before); now = unix s.
 func NewAccumulator(lineID, from, to, step, created, now int64) *Accumulator {
+	return NewAccumulatorSlot(lineID, from, to, step, created, now, SlotSeconds)
+}
+
+// NewAccumulatorSlot: the same for a line sampled every slot seconds (plan
+// 310 r3: 端内 lines, 60 s).
+func NewAccumulatorSlot(lineID, from, to, step, created, now, slot int64) *Accumulator {
+	if slot <= 0 {
+		slot = SlotSeconds
+	}
 	if step <= 0 {
-		step = SlotSeconds
+		step = slot
 	}
 	n := int((to - from + step - 1) / step)
 	if n < 0 {
 		n = 0
 	}
-	a := &Accumulator{lineID: lineID, from: from, to: to, step: step, created: created, now: now, lastMs: math.NaN()}
+	a := &Accumulator{lineID: lineID, from: from, to: to, step: step, created: created, now: now, lastMs: math.NaN(),
+		slot: slot, gap: slot + adjacentGap - SlotSeconds}
 	a.series = Series{LineID: lineID, Avg: make(Floats, n), Max: make(Floats, n), OK: make([]int32, n), Loss: make([]int32, n), Down: make([]int32, n), Closed: make([]int32, n), Exp: make([]int32, n)}
 	a.sums = make([]float64, n)
 	a.cnt = make([]int32, n)
@@ -205,7 +228,7 @@ func (a *Accumulator) Add(ts int64, status int, ms10 int) {
 		}
 		a.sum += ms
 		a.lat = append(a.lat, int32(ms10))
-		if a.havePrev && ts-a.prevTS <= adjacentGap {
+		if a.havePrev && ts-a.prevTS <= a.gap {
 			a.jitterSum += math.Abs(float64(int32(ms10)-a.prevLat)) / 10
 			a.jitterN++
 		}
@@ -216,12 +239,12 @@ func (a *Accumulator) Add(ts int64, status int, ms10 int) {
 		a.series.Down[i]++
 		a.lastMs = math.NaN()
 		a.havePrev = false
-		if a.run != nil && ts-a.lastDownTS <= adjacentGap {
+		if a.run != nil && ts-a.lastDownTS <= a.gap {
 			a.run.Slots++
-			a.run.End = ts + SlotSeconds
+			a.run.End = ts + a.slot
 		} else {
 			a.closeRun()
-			a.run = &Event{LineID: a.lineID, Start: ts, End: ts + SlotSeconds, Slots: 1}
+			a.run = &Event{LineID: a.lineID, Start: ts, End: ts + a.slot, Slots: 1}
 		}
 		a.lastDownTS = ts
 	case StatusClosed:
@@ -235,6 +258,30 @@ func (a *Accumulator) Add(ts int64, status int, ms10 int) {
 		a.closeRun()
 	default:
 		a.measured--
+	}
+}
+
+// AddPart adds the parts of one 端内 sample (plan 310 r3; call with the
+// sample's Add, ts ascending).
+func (a *Accumulator) AddPart(ts int64, total10, seg10 int, via int64) {
+	if ts < a.from || ts >= a.to {
+		return
+	}
+	i := int((ts - a.from) / a.step)
+	if i < 0 || i >= len(a.cnt) {
+		return
+	}
+	if !a.parts {
+		n := len(a.cnt)
+		a.parts = true
+		a.totSum, a.segSum, a.partCnt, a.viaTS = make([]float64, n), make([]float64, n), make([]int32, n), make([]int64, n)
+		a.series.Via = make([]int64, n)
+	}
+	a.totSum[i] += float64(total10) / 10
+	a.segSum[i] += float64(seg10) / 10
+	a.partCnt[i]++
+	if ts >= a.viaTS[i] {
+		a.viaTS[i], a.series.Via[i] = ts, via
 	}
 }
 
@@ -260,23 +307,32 @@ func (a *Accumulator) expected(start, end int64) int32 {
 	if start < a.created {
 		start = a.created
 	}
-	if limit := a.now - liveEdge; end > limit {
+	if limit := a.now - (a.slot + liveEdge - SlotSeconds); end > limit {
 		end = limit
 	}
 	if end <= start {
 		return 0
 	}
-	return int32(math.Round(float64(end-start) / SlotSeconds))
+	return int32(math.Round(float64(end-start) / float64(a.slot)))
 }
 
 // Finish returns the bucket series, the range stats and the 断流 events
 // (oldest first).
 func (a *Accumulator) Finish() (Series, LineStats, []Event) {
 	if a.run != nil {
-		ongoing := a.lastTS == a.lastDownTS && a.now-a.lastDownTS <= SlotSeconds+adjacentGap
+		ongoing := a.lastTS == a.lastDownTS && a.now-a.lastDownTS <= a.slot+a.gap
 		a.closeRun()
 		if ongoing && len(a.events) > 0 {
 			a.events[len(a.events)-1].Ongoing = true
+		}
+	}
+	if a.parts {
+		a.series.Total, a.series.Seg = make(Floats, len(a.cnt)), make(Floats, len(a.cnt))
+		for i, n := range a.partCnt {
+			a.series.Total[i], a.series.Seg[i] = math.NaN(), math.NaN()
+			if n > 0 {
+				a.series.Total[i], a.series.Seg[i] = a.totSum[i]/float64(n), a.segSum[i]/float64(n)
+			}
 		}
 	}
 	var expTotal int64
