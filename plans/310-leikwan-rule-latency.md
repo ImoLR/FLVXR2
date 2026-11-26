@@ -212,3 +212,7 @@ header shows **端内**, and 线路监测 gets a 「利群专线端内」 chart 
   (handler 1042 s, repo 2224 s, contract 558 s). 13 leftover test schemas from killed runs dropped from the test PG.
 - `go-gost/x` `go test ./socket/` ok. No frontend change in the finishing pass (no npm rerun).
 - Logs: `/root/flvx-workers/runs/leikwan-latency-landing-r2/work/t*.log`.
+
+## Released
+- [x] Released in `3.0.27-fork.174` (plan 312, 11-26 18:05 TW panel; OTA 百度云广州 + 阿里广州 18:10–18:22 TW;
+  chart 「利群专线端内」 created 18:27 TW). Rollback `/opt/flvx-svc/rollback/pre-fork174-20261126T100549Z/`.

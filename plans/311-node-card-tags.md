@@ -44,3 +44,6 @@ release waits for the user's OK on the screenshots, then joins the next batch wi
 
 ## Release needs
 Panel only (frontend image), no DB change, no OTA. Waits for the user's screenshot approval.
+
+## Released
+- [x] Released in `3.0.27-fork.174` (plan 312, 11-26 18:05 TW). Rollback `/opt/flvx-svc/rollback/pre-fork174-20261126T100549Z/`.
