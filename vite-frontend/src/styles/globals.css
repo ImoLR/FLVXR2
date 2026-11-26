@@ -1678,6 +1678,12 @@ textarea:focus-visible {
       0 10px 30px rgba(0, 0, 0, 0.22) !important;
   }
 
+  /* Plan 311: the node card ⓘ popover is a rounded-xl.border box too, but it
+     must keep its own width (the 100% above squeezed it to the 28 px button). */
+  .flvx-mobile-main [data-node-info-popover="true"].rounded-xl.border {
+    width: max-content !important;
+  }
+
   .flvx-mobile-main .flvx-dashboard-page {
     padding: 0 !important;
   }
