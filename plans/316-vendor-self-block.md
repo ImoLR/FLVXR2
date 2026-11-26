@@ -52,10 +52,10 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
 - [x] Screenshots desktop + 390 px (gallery)
 - [x] go vet + go test (SQLite + PG handler/repo/contract), go-gost tests, npm run build
 - [x] Prod-DB copy render before/after: diff = only the new rule, only on servers with a vendor
-- [ ] Wait for fork.175, rebase, release fork.176 (tag, CI, assets)
-- [ ] Prod backup + upgrade, prune backups
+- [x] Wait for fork.175, rebase, release fork.176 (tag, CI, assets)
+- [x] Prod backup + upgrade, prune backups
 - [ ] Assign vendors on prod; OTA landing agents (idle now / busy in 02–06 TW); node checks
-- [ ] Live check per vendor (vendor domain refused, normal site OK)
+- [x] Live check per vendor (vendor domain refused, normal site OK)
 - [ ] Ledger, memory, summary
 
 ## Evidence (build)
@@ -80,3 +80,32 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
   ok (TestRemoveCoreRefusals needs a short TMPDIR: unix socket path limit, environment only). `npm run build` ok.
 - Rollback rehearsal: fork.175 code (2458af9f) opens the migrated prod-DB copy (vendor columns + values) and renders every
   plan byte-identical to before (work/render-rollback175.json).
+
+## Release (fork.176)
+
+- fork.175 released 06:19 TW (worker exited 06:36). Feature rebased onto maintenance/3.0.27-fork.175-app-grant-entry
+  14bb4f6e (only plan-315 docs were new; code = tested base). Branch maintenance/3.0.27-fork.176-vendor-self-block, tag
+  3.0.27-fork.176 → 7b5aab50. CI Build Check 45905944502 ok, Build and Push Images 45905953916 ok, release Latest, 10
+  assets, compose images `ghcr.io/imolr/flvxr2-svc-*:3.0.27-fork.176`, PINNED_VERSION / REPO ok, gost-amd64 sha256 ok.
+- Prod swap 06:55:08–06:55:14 TW (deploy-176.sh: rollback dir /opt/flvx-svc/rollback/pre-fork176-20261126T225456Z with
+  validated DB backup + image tags + rollback.sh; prune → kept pre-fork175 + pre-fork176). State identical except
+  火山上海 offline (known). 6 forwards through Bestvm US / JP B: diagnose before = after panel = after rules (#78 clot88
+  diag 0/3 already before the change).
+- Vendors set 07:00–07:09 TW, one server at a time (hot RoutingService update, landing Core PID unchanged on every host):
+
+| 落地 | 厂商 | 屏蔽 | 谷歌 204 延迟 前/后 (ms, from dev box via the node) | 速度 前/后 (Mbit/s) | aws-hk RTT p50 前/后 | 厂商域名 |
+|------|------|------|------|------|------|------|
+| NexKR | NexKR | nexkr.sh | 872 / 862 | 28.5 / 34.9 | 48.5 / 40.3 | 拒绝 |
+| Boil Hinet 马年 | Boil | boil.network | 593 / 593 | 56.0 / 49.5 | 19.8 / 19.4 | 拒绝 |
+| Boil HKT 99u | Boil | boil.network | 690 / 683 | 48.2 / 43.1 | 2.9 / 2.8 | 拒绝 |
+| Fachost seednet 黑五 | Fachost | fachost.cloud | 686 / 675 | 37.9 / 27.6 | 20.9 / 21.5 | 拒绝 |
+| PQS TW | PQS | pqs.pw | 613 / 612 | 38.4 / 41.3 | 19.8 / 19.4 | 拒绝 |
+| Bestvm JP B | Bestvm | bestvm.cloud | 656 / 652 | 48.5 / 48.1 | 48.9 / 48.5 | 拒绝 |
+| Bestvm US | Bestvm | bestvm.cloud | 254 / 249 | 183.7 / 185.8 | 154.5 / 154.9 | 拒绝 |
+| Dmit T1 (mmwx 共享) | DMIT | dmit.io, dmithost.net | — (Mieru only) | — | — | rule in the share's Core (9 → 10 rules, PID unchanged) |
+
+  Tcscloud Seednet (no nodes) and the three dead share rows got their vendor too (no plan change, nothing pushed).
+  Boil Hinet 158 stays unset (hands off).
+- Agent OTA fork.176 (landing_guard 3), idle hosts only: NexKR 07:18, Boil HKT 99u 07:20, Fachost 07:21 TW (≈ 8 s each,
+  landing Core PID unchanged). After: IP + SNI to the vendor refused too; NexKR 874 ms / 27.9 Mbit/s, 99u 676 / 49.2,
+  Fachost 675 / 38.0 (same as before).
