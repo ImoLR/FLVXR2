@@ -42,18 +42,35 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
 
 ## Checklist
 
-- [ ] Plan doc
-- [ ] Backend: model columns, repo (vendor list, switch, server vendor), seed list
-- [ ] landingegress: vendor rule compile (first rule, markers, chain tags, limits) + tests
-- [ ] Handler: 内置 admin view / node view row, vendor save API, builtin switch, server vendor in update + list view (suggestion), resync on change
-- [ ] Agent: `vendor` builtin validate/render first, sniff complement regex, safe transitions, GuardVersion 3 + tests
-- [ ] Lab Core test (netns): SNI vendor blocked, other SNI passes, private-target protection unchanged
-- [ ] Frontend: 内置 row (admin + node + H5 compact), 管理厂商 dialog, server 设置 select, ⚠ 未设置厂商
-- [ ] Screenshots desktop + 390 px (gallery)
+- [x] Plan doc
+- [x] Backend: model columns, repo (vendor list, switch, server vendor), seed list
+- [x] landingegress: vendor rule compile (first rule, markers, chain tags, limits) + tests
+- [x] Handler: 内置 admin view / node view row, vendor save API, builtin switch, server vendor in update + list view (suggestion), resync on change
+- [x] Agent: `vendor` builtin validate/render first, sniff complement regex, safe transitions, GuardVersion 3 + tests
+- [x] Lab Core test (netns): SNI vendor blocked, other SNI passes, private-target protection unchanged
+- [x] Frontend: 内置 row (admin + node + H5 compact), 管理厂商 dialog, server 设置 select, ⚠ 未设置厂商
+- [x] Screenshots desktop + 390 px (gallery)
 - [ ] go vet + go test (SQLite + PG handler/repo/contract), go-gost tests, npm run build
-- [ ] Prod-DB copy render before/after: diff = only the new rule, only on servers with a vendor
+- [x] Prod-DB copy render before/after: diff = only the new rule, only on servers with a vendor
 - [ ] Wait for fork.175, rebase, release fork.176 (tag, CI, assets)
 - [ ] Prod backup + upgrade, prune backups
 - [ ] Assign vendors on prod; OTA landing agents (idle now / busy in 02–06 TW); node checks
 - [ ] Live check per vendor (vendor domain refused, normal site OK)
 - [ ] Ledger, memory, summary
+
+## Evidence (build)
+
+- Vendors seeded (web search + DNS + local vendor configs, no crawling): DMIT dmit.io + dmithost.net · Bestvm bestvm.cloud ·
+  Boil boil.network · Fachost fachost.cloud · PQS pqs.pw · Tcscloud tcscloud.net · NexKR nexkr.sh (not client.nexkr.cloud =
+  customers' hosts) · Leikwanhost leikwanhost.com · vmsilo vmsilo.com · Lightlayer lightlayer.net · AWS aws.amazon.com +
+  signin.aws · 阿里云 aliyun.com + alibabacloud.com · 百度智能云 cloud.baidu.com + bce.baidu.com · 火山引擎 volcengine.com.
+  Not seeded (domain not confirmed): Datawave, Mkcloud, Nobrand — admin can add them.
+- Lab netns E2E with the pinned Core v1.4.83 (`TestVendorBlockNetnsE2E`, SS2022 node): plan-316 marker → IP + SNI
+  www.dmit.io / dmit.io / act.dmithost.net refused, HTTP Host www.dmit.io refused, SNI www.example.com / notdmit.io pass,
+  requested domain www.dmit.io refused even with a later 「直连 dmit」 user rule, private target refused with any SNI and never
+  reached; older "abuse" marker → requested domain refused, IP + SNI passes (as designed); removal = 2 passes, then SNI
+  passes again. A live TCP conn survives the inbound re-add (sniffing change), re-add pass ≈ 0.17 s.
+- Prod-DB copy (11-27 05:23 TW) render before (fork.175 head 2458af9f) vs after: only servers with a vendor and nodes gain ONE
+  rule in first place (DMIT T1 shared no marker; native v2 agents marker abuse; simulated v3 marker vendor); Boil Hinet 158
+  unassigned → identical; empty servers identical; warnings / outbounds / restart flags unchanged (work/render-diff.txt).
+- Gallery: http://104.145.236.29:8791/vendor-self-block/ (27 PNG, desktop / 390 px / dark).
