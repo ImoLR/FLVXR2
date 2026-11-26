@@ -160,7 +160,7 @@ func (h *Handler) landingVendorSave(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(view))
 }
 
-// landingVendorAssign sets one server's vendor ('' = 未设置) and syncs it.
+// landingVendorAssign sets one server's vendor ("" = 未设置) and syncs it.
 func (h *Handler) landingVendorAssign(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ServerID int64  `json:"serverId"`

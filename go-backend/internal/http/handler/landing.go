@@ -644,7 +644,7 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-		// Validate the outbound/routing assignment before saving anything else.
+	// Validate the outbound/routing assignment before saving anything else.
 	profileID := old.RouteProfileID
 	if req.ProfileID != nil {
 		profileID = *req.ProfileID
@@ -750,7 +750,7 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-		if req.CoreUpgradeConfirmed && old.Source == "native" && old.CoreStaleEpoch != "" {
+	if req.CoreUpgradeConfirmed && old.Source == "native" && old.CoreStaleEpoch != "" {
 		if err := h.repo.SetLandingCoreUpgrade(req.ID); err != nil {
 			landingError(w, err)
 			return

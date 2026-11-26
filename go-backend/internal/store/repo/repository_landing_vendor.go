@@ -16,7 +16,7 @@ import (
 // Plan 316 「屏蔽本机厂商官网」: the admin's vendor list, its global switch and
 // each landing server's vendor.
 
-// VendorsFromSetting decodes the stored list; '' (never saved) or an
+// VendorsFromSetting decodes the stored list; "" (never saved) or an
 // unreadable value is the built-in seed list.
 func VendorsFromSetting(s model.LandingEgressSetting) (list []landingegress.Vendor, custom bool) {
 	if strings.TrimSpace(s.Vendors) == "" {
@@ -114,7 +114,7 @@ func (r *Repository) SaveLandingVendors(list []landingegress.Vendor) ([]landinge
 	return norm, nil
 }
 
-// SetLandingServerVendor assigns a vendor ('' = none); like a profile change
+// SetLandingServerVendor assigns a vendor ("" = none); like a profile change
 // (SetLandingServerEgress) the caller re-syncs the server, which pushes the
 // new plan to the agent / Helper.
 func (r *Repository) SetLandingServerVendor(id int64, key string) error {
