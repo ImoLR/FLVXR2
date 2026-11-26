@@ -190,7 +190,7 @@ serve(8443, tls)
 	}
 	clientCfg, _ := json.Marshal(map[string]any{"log": map[string]any{"loglevel": "warning"}, "inbounds": inbounds,
 		"outbounds": []any{map[string]any{"tag": "ss", "protocol": "shadowsocks", "settings": map[string]any{"servers": []any{map[string]any{"address": "11.0.1.1", "port": n1.Port, "method": SS2022Method, "password": n1.SS2022.ServerKey + ":" + n1.SS2022.UserKey}}}}},
-		"routing": map[string]any{"rules": rules}})
+		"routing":   map[string]any{"rules": rules}})
 	if err := os.WriteFile(filepath.Join(base, "client.json"), clientCfg, 0600); err != nil {
 		t.Fatal(err)
 	}
