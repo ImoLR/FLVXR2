@@ -197,5 +197,18 @@ header shows **端内**, and 线路监测 gets a 「利群专线端内」 chart 
 - [x] UI: rows / H5 field / user page / 手机本地 / header 端内 / 线路监测 dialog + one-click + tooltip + stats
 - [x] npm run build + eslint (touched files) + tsc
 - [x] Lab screenshots (第 3 轮) → gallery
-- [ ] Push, CI green
-- [ ] Summary, RELEASE-LEDGER row 310
+- [x] Exit re-read cadence fix (finishing pass, task leikwan-latency-landing-r2): re-read ≤ every 2 min while no exit is known or an exit that answered ping went silent; never-answering exit only every 10 min; same silent exit after the 5-min hold → no-ping exit
+- [x] Push, CI green — head d5172bda, CI 45718449237 (frontend, backend, agent, PostgreSQL contract)
+- [x] Summary `runs/leikwan-latency-landing-r2/summary.md` (+ copy in `runs/leikwan-latency-landing/`), RELEASE-LEDGER row 310
+
+### Results (round 3, finishing pass 11-26 TW)
+- Code head d5172bda (r3 = 5dea18b6 agent + panel, 6d659ab3 UI, d5172bda exit re-read cadence); CI 45718449237 green
+  (frontend, backend, agent, PostgreSQL contract).
+- `go test ./internal/http/handler/ -run 'LeiKwan|LineMonitor'` ok (142 s).
+- Contract `TestLeiKwanEndInContract` + `TestLeiKwanRuleLatencyContract` sqlite + postgres ok, `TestLineMonitorContract` ok.
+- `go-backend` `go test ./...` SQLite: all ok.
+- `go-backend` `go test ./...` PostgreSQL: all ok except handler / repo / contract hitting Go's 10-min default timeout
+  (packages run in parallel on one small PG container, same as r1); re-run `-p 1 -timeout 40m` → all three ok
+  (handler 1042 s, repo 2224 s, contract 558 s). 13 leftover test schemas from killed runs dropped from the test PG.
+- `go-gost/x` `go test ./socket/` ok. No frontend change in the finishing pass (no npm rerun).
+- Logs: `/root/flvx-workers/runs/leikwan-latency-landing-r2/work/t*.log`.
