@@ -6,7 +6,7 @@ import type {
 } from "@/api/leikwan-line";
 
 import { useState } from "react";
-import { Smartphone } from "lucide-react";
+import { Settings, Smartphone } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { Pill } from "@/pages/landing/pill";
@@ -14,10 +14,13 @@ import {
   PHONE_HOST,
   PHONE_KEY,
   PHONE_NAME,
-  PhoneSetupPanel,
   phoneEntryPill,
   usePhoneCtx,
 } from "@/pages/leikwan/panel/phone-entry";
+import {
+  PhoneGearSheet,
+  PhoneSetupPanel,
+} from "@/pages/leikwan/panel/phone-setup";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { setPhoneEntry } from "@/utils/app-bridge";
 
@@ -29,6 +32,8 @@ import { setPhoneEntry } from "@/utils/app-bridge";
 // entry opens the usual 换主入口 dialog (all devices, with its per-forward
 // preview) — never changed silently from the dropdown. Under it, with 手机本地
 // picked: the setup + connect panel. Browsers and normal users never see it.
+// Plan 315 r3: under the dropdown only three layers (first-run cards, 连接,
+// status); the rest of 手机本地's settings sit behind the header's gear.
 
 /** The entry's status word (same as the 入口机 rows: 就绪 / 离线 / 未检测到). */
 function entryWord(e: LeiKwanEntryNode) {
@@ -60,6 +65,7 @@ export function MyEntryCard({
 }) {
   const ctx = usePhoneCtx();
   const [busy, setBusy] = useState(false);
+  const [gear, setGear] = useState(false);
 
   if (!ctx) return null;
   const s = ctx.state;
@@ -108,6 +114,17 @@ export function MyEntryCard({
         />
         <span className="text-sm font-semibold">我的入口</span>
         <span className="text-xs text-default-500">这台手机用哪个入口</span>
+        {local && (
+          <button
+            aria-label="手机本地设置"
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+            data-phone-gear=""
+            type="button"
+            onClick={() => setGear(true)}
+          >
+            <Settings size={16} />
+          </button>
+        )}
       </div>
       <Select
         aria-label="我的入口"
@@ -150,7 +167,10 @@ export function MyEntryCard({
         ]}
       </Select>
       {local ? (
-        <PhoneSetupPanel rules={rules} usage={usage} />
+        <>
+          <PhoneSetupPanel rules={rules} usage={usage} />
+          <PhoneGearSheet open={gear} onClose={() => setGear(false)} />
+        </>
       ) : (
         <p
           className="text-xs leading-5 text-default-500"

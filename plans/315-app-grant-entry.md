@@ -110,3 +110,72 @@ worktree `/root/projects/flvxx/flvxx-315`. Gallery `/root/mmwx-preview/app-grant
   desktop 专线树 differs only by the live 端内 value and ≤ 2/255 background-gradient noise. 125 % showed no
   layout break (cosmetic only: 「利群客户端」 label wraps to 2 lines and the App version pill truncates with …
   in 入口机 → 手机本地 at 360 / 125 %).
+
+## Round 3 — 「v3 简洁版」 (user 11-26 ~23:15 TW: 「信息量太大了，不够简洁，没有层次感」)
+Brief /root/flvx-workers/briefs/app-grant-simple.md. Build + screenshots only (no release / OTA / prod change);
+part C untouched. Gallery: new top section 「v3 简洁版」 on /root/mmwx-preview/app-grant-entry/ (old shots below).
+
+- A: H5 专线 header shows the line name without 「利群·」 (display only); the route pill goes back IN the header:
+  chevron + name + route pill + 端内 pill (+ ⚠) + count bubble on ONE line at 360 / 125 % for every prod line;
+  compact route pill if needed (never wrap, never push the bubble out); the r1 route row in the opened 专线 goes.
+- B: 授权 → 我的入口 with 手机本地 = three layers under the dropdown —
+  1. the old App's first-run cards (PubOnboarding + OnboardingViews): 电池 / 节点地址 127.0.0.1 / 分应用代理里绕过,
+     onboarding ring on the first untapped card, tap → sheet (tip text) → 「我知道了」 → shatter (~600 ms) + reflow;
+     battery card leaves only when the battery is 无限制 (never back); localStorage; reduced motion → fade;
+  2. connect row: 商家账号 (tap = editCredentials) + big 连接 / 断开 (no account → account first; battery not
+     无限制 → quick-fix sheet 去设置 / 仍然连接);
+  3. status only while connecting (steps) / failed (one red line) / connected (per-forward list, one pill);
+     device-limit amber line only when the vendor device count is full.
+  Removed: checklist, 快捷设置, notes, 「更多」; 自动连接 / 预热池 / 运行日志 / 换面板地址 behind a gear in the card
+  header (手机本地 only). 入口机 → 手机本地: fix 「利群客户端」 wrap + version pill ellipsis at 360 / 125 %.
+- Browsers unchanged for B (proof vs fork.174).
+
+### Round 3 decisions
+- **A**: H5 专线 header = chevron + name without 「利群·」 (`dropLeiKwan`, display only; a leading flag stays,
+  a bare 「利群」 stays) + route pill 「CAN→HKG」 (`routeTight`, 10 px text, 4 px padding) + 「端内 X ms」 (compact:
+  11 px, 6 px padding) + ⚠ + count bubble; header gap 6 px / padding 10 px, inner gap 4 px. Name and 端内 never
+  shrink; only the route pill could cut (…) as a last resort; the count bubble is outside the clipped group, so it
+  always stays in the card. The first try (11 px route, standard 端内 pill) cut the route at 360 / 125 % by 11–16 px;
+  the compact version leaves 18–23 px at 360 / 125 % (enough for the ⚠, 14 + 4 px). The opened 专线 is fork.174's
+  chip row again (no route row). Rule rows, desktop and normal users unchanged.
+- **B layer 1** (`phone-cards.tsx`): the old App's cards ported — 2-column grid (3 columns on desktop), card =
+  tinted badge (amber battery / blue server / teal split) + one chip (电池 未设置 / ✓ 已设置, others 必看) + face
+  (max 2 lines). Ring = `OnboardingRing` (plan 146/169 component, lap + rest) on the first untapped card, not while
+  a sheet is open or cards leave / reflow. Sheets = bottom sheet on phones (centred dialog ≥ 640 px) with r2's tip
+  texts (battery: 我知道了 + 去设置; node: 127.0.0.1 + per-forward port table; bypass: client list).
+  Shatter = 5 × 3 cells → 30 triangles, each a `clip-path` copy of the card in a fixed layer, Web Animations
+  (transform + opacity, 620 ms, App physics: outward + up, gravity, spin, fade after 25 %); reflow at 60 % = FLIP
+  glide of the other cards + the block's height (320 ms). Reduced motion → 180 ms fade, no glide. Storage
+  `flvx_phone_card_done_<k>` / `flvx_phone_card_seen_<k>` (try/catch). Battery: retired at first sight if already
+  无限制; on screen when it turns 无限制 → ✓ 已设置, shatters after 650 ms; its 「我知道了」 only closes the sheet.
+- **B layer 2**: left 商家账号 (「填写商家账号」 amber, or small 「商家账号 / 已填 ·…407」) → `editCredentials`; right
+  big 连接 (primary solid) / 断开 (danger flat). 连接 without an account → the App's account dialog first (connect
+  only after `saved`); battery not 无限制 → sheet 「电池没设成「无限制」」 with 仍然连接 / 去设置 (back with 无限制 →
+  connects by itself).
+- **B layer 3**: connecting = the App's real four steps (读取账号 / 连接商家 / 等待商家授权 / 启动入口 — the words
+  1.0.10-panel sends in `stage`; the brief's 「申请线路授权 / 确认本地入口」 are not App stages) with the time on
+  the current step; failed = one red line 「连接失败：…」 + code; connected / partial = 「已连接 7/7 · 21:02 起」 and
+  one row per forward (name without 利群, 127.0.0.1:port, ONE pill: 失败 / 正走备线 / 快切 (= ready with 日志快切
+  armed) / 就绪 (ready, no 快切) / 连接中 / 未连接; a failed forward shows its reason under it). Idle = nothing.
+  Device limit: one amber line only when the vendor count is full and this phone is not connected (when connected
+  the phone holds one of the slots itself).
+- **B gear** (amber round button, 手机本地 only) → sheet 手机本地设置: 打开 App 自动连接 (+ one-line note), 预热池,
+  运行日志 (size, 查看 / 复制 / 分享), device name + 换面板地址. Removed: checklist, 快捷设置, the three notes,
+  「更多」, the r2 「用之前看一下」 block and its `flvx_phone_ok_once` / `flvx_phone_bypass_ok` flags (old keys
+  stay in storage, unused).
+- **入口机 → 手机本地**: compact labels 92 px + nowrap (「利群客户端」 one line at 360 / 125 %); version pill
+  「App 1.0.10-panel」 (versionCode moved into its title) — no ellipsis.
+
+### Round 3 checklist
+- [x] Lab r3 (`/root/flvx-workers/runs/app-grant-simple/lab`): new read-only prod-DB snapshot, branch paneld (backend
+      unchanged; same leikwan API as fork.174 → one backend for both dists)
+- [x] A: header name without 「利群·」 + route pill back in the header, one line at 360 / 390 × 100 / 125 %; open-area
+      route row removed
+- [x] B layer 1: first-run cards (grid, chips, ring, sheets, shatter + reflow, battery rule, storage, reduced motion)
+- [x] B layer 2: 商家账号 + 连接 / 断开 (credentials first, battery quick-fix sheet)
+- [x] B layer 3: steps / failed line / per-forward list / device-full line
+- [x] B gear sheet (自动连接, 预热池, 运行日志, 换面板地址); checklist / 快捷设置 / notes / 更多 removed
+- [x] 入口机 → 手机本地 360 / 125 % nits
+- [ ] tsc + eslint (changed files) + npm build
+- [ ] Shots (360 / 390 × 100 / 125 %) + browser proof vs fork.174 + gallery 「v3 简洁版」 section
+- [ ] Commit, push, CI green; ledger row 315 head; summary

@@ -70,6 +70,24 @@ export const routeShort = (label?: string) =>
   label ||
   "";
 
+/**
+ * Plan 315 r3 (display only, phone views): 「利群·广港」 → 「广港」,
+ * 「🇭🇰 利群广港」 → 「🇭🇰 广港」 (a leading flag stays). A bare 「利群」 stays.
+ */
+export const dropLeiKwan = (name?: string) => {
+  const n = name || "";
+  const m =
+    /^((?:\p{Regional_Indicator}{2}|\p{Extended_Pictographic}️?)\s*)?利群\s*[·・]?\s*(?=\S)/u.exec(
+      n,
+    );
+
+  return m ? (m[1] || "") + n.slice(m[0].length) : n;
+};
+
+/** 「CAN → HKG」 → 「CAN→HKG」 (plan 315 r3: the H5 专线 header pill). */
+export const routeTight = (label?: string) =>
+  routeShort(label).replace(/\s*→\s*/g, "→");
+
 /** 「SS2022」, 「VLESS Reality」, 「AnyTLS」… (compact: 「Reality」). */
 export const protocolLabel = (p?: string, compact = false) => {
   if (!p) return "";

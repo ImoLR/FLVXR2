@@ -107,10 +107,12 @@ import {
   RuleDot,
   blockedNote,
   copyText,
+  dropLeiKwan,
   externalNote,
   externalProtocol,
   protocolLabel,
   routeShort,
+  routeTight,
   useLeiKwanRuleActions,
   type LeiKwanRuleActions,
 } from "@/pages/leikwan/panel/rule-actions";
@@ -1736,43 +1738,57 @@ function AdminPhone({
               >
                 {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
                 <div
-                  className="flex min-h-[52px] cursor-pointer items-center gap-2 px-3 py-2"
+                  className="flex min-h-[52px] cursor-pointer items-center gap-1.5 px-2.5 py-2"
                   data-group-header=""
                   onClick={() => {
                     queueGroupScroll(lineGroupKey(g.id), !open);
                     setOpenLine(open ? null : g.id);
                   }}
                 >
-                  {/* Plan 315 (user 11-26): one line at 360 px / 130 % text —
-                      the name never wraps; 「端内」 sits in the right cluster
-                      before the count; the route pill moved to the chip row
-                      under the header (open). */}
+                  {/* Plan 315 r3 (user 11-26): ONE line at 360 px / 125 %
+                      text — chevron, the name without 「利群·」 (display
+                      only), a compact route pill, 端内, ⚠, the count. The
+                      name and 端内 never shrink; only the route pill may
+                      cut (…) as a last resort, the bubble stays inside.
+                      Measured: 18–23 px left at 360 px / 125 % (room for
+                      the ⚠ too). */}
                   <LkChevron open={open} />
                   <span
-                    className="shrink-0 whitespace-nowrap text-[15px] font-semibold"
-                    data-leikwan-line-name=""
+                    className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden"
+                    data-leikwan-line-head=""
                   >
-                    {g.name}
+                    <span
+                      className="shrink-0 whitespace-nowrap text-[15px] font-semibold"
+                      data-leikwan-line-name=""
+                      title={g.name}
+                    >
+                      {dropLeiKwan(g.name)}
+                    </span>
+                    <span
+                      className="inline-flex min-w-0 shrink items-center rounded-full bg-teal-500/15 px-1 text-[10px] font-semibold leading-[18px] text-teal-700 dark:bg-teal-400/15 dark:text-teal-300"
+                      data-leikwan-line-route=""
+                      title={g.route}
+                    >
+                      <span className="min-w-0 truncate">
+                        {routeTight(g.route)}
+                      </span>
+                    </span>
+                    <LineEndInTag compact endIn={g.line?.endIn} />
+                    {g.rules.some((r) => r.backupError) && (
+                      <AlertTriangle
+                        className="shrink-0 text-red-700"
+                        size={14}
+                      />
+                    )}
                   </span>
-                  {g.rules.some((r) => r.backupError) && (
-                    <AlertTriangle
-                      className="shrink-0 text-red-700"
-                      size={14}
-                    />
-                  )}
-                  <span className="min-w-0 flex-1" />
-                  <LineEndInTag endIn={g.line?.endIn} />
                   <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-purple-500/15 px-1.5 text-xs font-semibold text-purple-700 dark:bg-purple-400/20 dark:text-purple-300">
                     {g.rules.length}
                   </span>
                 </div>
                 {open && (
                   <div className="space-y-2 px-2.5 pb-2.5">
-                    {g.line ? (
+                    {g.line && (
                       <div className="flex flex-wrap items-center gap-1 px-0.5">
-                        <Pill title={g.route} tone="teal">
-                          {routeShort(g.route)}
-                        </Pill>
                         <LineChips compact line={g.line} />
                         <button
                           className="ml-auto text-sm font-medium text-primary"
@@ -1781,12 +1797,6 @@ function AdminPhone({
                         >
                           编辑专线
                         </button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center gap-1 px-0.5">
-                        <Pill title={g.route} tone="teal">
-                          {routeShort(g.route)}
-                        </Pill>
                       </div>
                     )}
                     {g.rules.map((r) => (
