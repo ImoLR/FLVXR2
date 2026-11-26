@@ -37,6 +37,8 @@ type subAdminSub struct {
 	// EntryMode (plan 297): "local" = 手机本地 subscription (badge); omitted
 	// for the default main.
 	EntryMode string `json:"entryMode,omitempty"`
+	// FixedNames (plan 315): 「节点名带入口名」 off; omitted = today's names.
+	FixedNames bool `json:"fixedNames,omitempty"`
 }
 
 type subAdminSource struct {
@@ -185,6 +187,7 @@ func (h *Handler) subAdminList(w http.ResponseWriter, r *http.Request) {
 		if s.EntryLocal() {
 			u.Subs[len(u.Subs)-1].EntryMode = model.SubEntryLocal
 		}
+		u.Subs[len(u.Subs)-1].FixedNames = s.FixedNames()
 		if s.LastPullAt > u.LastPullAt {
 			u.LastPullAt = s.LastPullAt
 		}
@@ -244,6 +247,7 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
+	picks, perForward := d.withNames(s).rulePicks(refs) // plan 315
 	names, err := h.repo.UserNamesByIDs([]int64{s.UserID})
 	if err != nil {
 		subFail(w, err)
@@ -257,15 +261,20 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 	// (the current key of a rule whose entry address changed, too).
 	nodeName := map[string]string{}
 	items := make([]subAdminItem, 0, len(refs))
-	for _, ref := range refs {
+	for i, ref := range refs {
 		it := subAdminItem{}
 		switch ref.Kind {
 		case sublink.RefForwardLink, sublink.RefLandingDirect:
 			it.Group = "landing"
+			l, ok := d.panelLink(ref)
 			if ref.Kind == sublink.RefForwardLink {
 				it.Group = "rule"
+				l, ok = picks[i]
 			}
-			if l, ok := d.panelLink(ref); ok {
+			if ok {
+				if l.Rule && d.fixedNames {
+					l.Node.Name = fixedRuleName(l, perForward)
+				}
 				it.Name, it.Protocol = l.Node.Name, l.Node.ProtocolLabel()
 				if l.Rule {
 					it.Group, it.Chain = "rule", l.Chain
@@ -365,6 +374,6 @@ func (h *Handler) subAdminDetail(w http.ResponseWriter, r *http.Request) {
 		"id": s.ID, "name": s.Name, "userId": s.UserID, "user": owner, "format": s.Format, "ruleMode": s.RuleMode,
 		"createdTime": s.CreatedTime, "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes,
 		"items": items, "routing": routing, "routingKind": subRoutingKind(list), "routingCatalog": subRoutingCatalog(),
-		"entryMode": subEntryMode(s),
+		"entryMode": subEntryMode(s), "entryNames": !s.FixedNames(),
 	}))
 }

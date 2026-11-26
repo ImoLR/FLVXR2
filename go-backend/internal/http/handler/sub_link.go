@@ -186,6 +186,18 @@ type subData struct {
 	srcNodes  map[int64][]sublink.SourceNode
 	// Plan 272: the owner's 利群 rules as nodes (nil = not referenced).
 	leikwan *lkSubData
+	// Plan 315: the subscription has fixed node names (entry_names = false):
+	// rule nodes are named after the forward only, and a picked entry that no
+	// longer serves the forward follows its one remaining entry. Set by the
+	// caller per subscription before resolve / panelLink.
+	fixedNames bool
+	byForward  map[int64][]repo.SubPanelLink // forward id → its rule links
+}
+
+// withNames (plan 315): the same data for a subscription's naming mode.
+func (d *subData) withNames(s *model.UserSubscription) *subData {
+	d.fixedNames = s != nil && s.FixedNames()
+	return d
 }
 
 // subCounts summarizes a subscription for its card.
@@ -225,7 +237,7 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 		}
 	}
 	d := &subData{links: map[string]repo.SubPanelLink{}, byEntry: map[string][]repo.SubPanelLink{}, externals: map[int64]model.LandingExternalNode{},
-		sources: map[int64]model.UserSubSource{}, srcNodes: map[int64][]sublink.SourceNode{}}
+		sources: map[int64]model.UserSubSource{}, srcNodes: map[int64][]sublink.SourceNode{}, byForward: map[int64][]repo.SubPanelLink{}}
 	if wantLK {
 		d.leikwan = h.leiKwanSubLoadAt(userID, lkEntryFrom(ctx))
 	}
@@ -245,6 +257,7 @@ func (h *Handler) subLoad(ctx context.Context, userID int64, refs []sublink.Ref,
 				node, _, _ := strings.Cut(l.Ref.Entry, "|")
 				k := strconv.FormatInt(l.Ref.ForwardID, 10) + "|" + node
 				d.byEntry[k] = append(d.byEntry[k], l)
+				d.byForward[l.Ref.ForwardID] = append(d.byForward[l.Ref.ForwardID], l)
 			}
 		}
 	}
@@ -321,11 +334,70 @@ func (d *subData) panelLink(ref sublink.Ref) (repo.SubPanelLink, bool) {
 	}
 	if ref.Kind == sublink.RefForwardLink {
 		node, _, _ := strings.Cut(ref.Entry, "|")
-		if list := d.byEntry[strconv.FormatInt(ref.ForwardID, 10)+"|"+node]; len(list) == 1 {
+		list := d.byEntry[strconv.FormatInt(ref.ForwardID, 10)+"|"+node]
+		if len(list) == 1 {
 			return list[0], true
+		}
+		// Plan 315 (fixed names only): the picked entry no longer serves the
+		// forward and the forward has exactly one entry address now → follow
+		// it (換入口 keeps the node, and its name).
+		if d.fixedNames && len(list) == 0 {
+			if all := d.byForward[ref.ForwardID]; len(all) == 1 {
+				return all[0], true
+			}
 		}
 	}
 	return repo.SubPanelLink{}, false
+}
+
+// rulePicks (plan 315): the rule link each forward_link ref resolves to, by
+// ref index. Fixed names: a ref that only follows (its entry is gone) onto a
+// link another ref of this subscription already names is dropped (never two
+// equal nodes); perForward counts the distinct links of each forward, so a
+// forward picked through two or more entries keeps 「 · 入口名」. Today's names:
+// panelLink as before, perForward unused.
+func (d *subData) rulePicks(refs []sublink.Ref) (map[int]repo.SubPanelLink, map[int64]int) {
+	picks := map[int]repo.SubPanelLink{}
+	perForward := map[int64]int{}
+	direct := map[string]bool{}
+	if d.fixedNames {
+		for _, ref := range refs {
+			if ref.Kind == sublink.RefForwardLink {
+				if _, ok := d.links[ref.Key()]; ok {
+					direct[ref.Key()] = true
+				}
+			}
+		}
+	}
+	used := map[string]bool{}
+	for i, ref := range refs {
+		if ref.Kind != sublink.RefForwardLink {
+			continue
+		}
+		l, ok := d.panelLink(ref)
+		if !ok {
+			continue
+		}
+		if d.fixedNames {
+			k := l.Ref.Key()
+			if used[k] || (k != ref.Key() && direct[k]) {
+				continue
+			}
+			used[k] = true
+			perForward[l.Ref.ForwardID]++
+		}
+		picks[i] = l
+	}
+	return picks, perForward
+}
+
+// fixedRuleName (plan 315): the forward name, plus 「 · 入口名」 when this
+// subscription holds the forward through two or more entries.
+func fixedRuleName(l repo.SubPanelLink, perForward map[int64]int) string {
+	if perForward[l.Ref.ForwardID] > 1 && l.EntryName != "" {
+		return l.BaseName + " · " + l.EntryName
+	}
+	return l.BaseName
 }
 
 // resolve turns refs into nodes (in order) and card counts. At most max
@@ -334,6 +406,7 @@ func (d *subData) panelLink(ref sublink.Ref) (repo.SubPanelLink, bool) {
 func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCounts) {
 	nodes := []sublink.Node{}
 	c := subCounts{Sources: []subSourceCount{}}
+	picks, perForward := d.rulePicks(refs)
 	keep := func(n sublink.Node) {
 		c.Total++
 		if len(nodes) < max {
@@ -352,9 +425,20 @@ func (d *subData) resolve(refs []sublink.Ref, max int) ([]sublink.Node, subCount
 		sc.All = sc.All || all
 		sc.Count += n
 	}
-	for _, ref := range refs {
+	for i, ref := range refs {
 		switch ref.Kind {
-		case sublink.RefForwardLink, sublink.RefLandingDirect:
+		case sublink.RefForwardLink:
+			if l, ok := picks[i]; ok {
+				n := l.Node
+				n.Key = ref.Key()
+				if d.fixedNames {
+					n.Name = fixedRuleName(l, perForward)
+				}
+				keep(n)
+				c.Panel++
+				continue
+			}
+		case sublink.RefLandingDirect:
 			if l, ok := d.panelLink(ref); ok {
 				n := l.Node
 				n.Key = ref.Key()
@@ -538,7 +622,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 	views := []interface{}{}
 	for _, s := range subs {
 		refs := sublink.ParseRefs(s.Items)
-		_, counts := d.resolve(refs, 0)
+		_, counts := d.withNames(&s).resolve(refs, 0)
 		seen := map[int64]bool{}
 		for _, ref := range refs {
 			if (ref.Kind == sublink.RefSourceAll || ref.Kind == sublink.RefSourceNode) && !seen[ref.SourceID] {
@@ -548,7 +632,7 @@ func (h *Handler) subList(w http.ResponseWriter, r *http.Request) {
 		}
 		views = append(views, map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode,
 			"counts": counts, "items": len(refs), "lastPullAt": s.LastPullAt, "lastPullClient": s.LastPullClient, "lastPullNodes": s.LastPullNodes, "createdTime": s.CreatedTime,
-			"routing": len(sublink.ParseRouting(s.Routing)), "auto": s.AutoKind, "entryMode": subEntryMode(&s)})
+			"routing": len(sublink.ParseRouting(s.Routing)), "auto": s.AutoKind, "entryMode": subEntryMode(&s), "entryNames": !s.FixedNames()})
 	}
 	srcViews := []interface{}{}
 	for _, s := range sources {
@@ -576,6 +660,7 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 	var refs []sublink.Ref
 	routing := sublink.DefaultRouting() // a new subscription starts with the default 分流
 	ctx := r.Context()
+	var sub *model.UserSubscription
 	if req.ID > 0 {
 		s, err := h.repo.GetSubscription(req.ID)
 		if err != nil || s == nil || s.UserID != uid {
@@ -585,12 +670,15 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		refs = sublink.ParseRefs(s.Items)
 		routing = sublink.ParseRouting(s.Routing)
 		ctx = subEntryCtx(ctx, s) // plan 297: a 手机本地 sub shows 127.0.0.1
+		sub = s
 	}
 	d, err := h.subLoad(ctx, uid, refs, true, false)
 	if err != nil {
 		subFail(w, err)
 		return
 	}
+	d.withNames(sub)
+	picks, perForward := d.rulePicks(refs)
 	item := func(ref sublink.Ref, n sublink.Node, detail string) map[string]interface{} {
 		return map[string]interface{}{"ref": subRefView(ref), "key": ref.Key(), "name": n.Name, "protocol": n.ProtocolLabel(), "detail": detail}
 	}
@@ -658,12 +746,19 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 	// 分流 exit naming the stored key is moved along.
 	selected := []interface{}{}
 	rekey := map[string]string{}
-	for _, ref := range refs {
+	for i, ref := range refs {
 		v := map[string]interface{}{"ref": subRefView(ref), "key": ref.Key()}
 		switch ref.Kind {
 		case sublink.RefForwardLink, sublink.RefLandingDirect:
-			if l, ok := d.panelLink(ref); ok {
+			l, ok := picks[i]
+			if ref.Kind == sublink.RefLandingDirect {
+				l, ok = d.panelLink(ref)
+			}
+			if ok {
 				v["name"], v["protocol"], v["group"] = l.Node.Name, l.Node.ProtocolLabel(), "landing"
+				if l.Rule && d.fixedNames {
+					v["name"] = fixedRuleName(l, perForward) // plan 315: as the client shows it
+				}
 				if l.Rule {
 					v["group"], v["chain"] = "rule", l.Chain
 					if l.External != "" {
@@ -780,6 +875,11 @@ type subSaveReq struct {
 	// EntryMode (plan 297): "main" | "local" (手机本地, admin only); absent =
 	// create as main / update keeps the stored mode.
 	EntryMode *string `json:"entryMode"`
+	// EntryNames (plan 315 「节点名带入口名」): true = today's names, false =
+	// fixed names (the editor sends false for a new subscription); absent =
+	// create with today's names (an older editor or API client: output as
+	// before) / update keeps the stored setting.
+	EntryNames *bool `json:"entryNames"`
 }
 
 // subReqEntryMode (plan 297): the entry mode a save asks for — "" = keep
@@ -803,7 +903,7 @@ func subReqEntryMode(req *subSaveReq, admin bool) (string, error) {
 // subValidate checks a save request against the user's own data: only refs
 // that resolve are kept (other users' ids never do), at most 100 nodes. The
 // 分流 list (when sent) comes back cleaned as its stored JSON.
-func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) ([]sublink.Ref, *string, error) {
+func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq, fixed bool) ([]sublink.Ref, *string, error) {
 	req.Name = landingsub.CleanName(strings.TrimSpace(req.Name))
 	if req.Name == "" {
 		req.Name = "我的订阅"
@@ -826,7 +926,9 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 	if err != nil {
 		return nil, nil, err
 	}
+	d.fixedNames = fixed // plan 315
 	kept := make([]sublink.Ref, 0, len(refs))
+	keptKeys := map[string]bool{}
 	total := 0
 	for _, ref := range refs {
 		_, c := d.resolve([]sublink.Ref{ref}, 0)
@@ -834,10 +936,15 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 			continue
 		}
 		if ref.Kind == sublink.RefForwardLink {
-			// Keep the current entry key (an address change resolved by node).
+			// Keep the current entry key (an address change resolved by node;
+			// plan 315 fixed names: also an entry the forward moved to).
 			if l, ok := d.panelLink(ref); ok {
 				ref = l.Ref
 			}
+			if fixed && keptKeys[ref.Key()] {
+				continue // plan 315: followed onto a link already in the list
+			}
+			keptKeys[ref.Key()] = true
 		}
 		total += c.Total
 		kept = append(kept, ref)
@@ -892,7 +999,8 @@ func (h *Handler) subValidate(ctx context.Context, uid int64, req *subSaveReq) (
 }
 
 func subView(s *model.UserSubscription) map[string]interface{} {
-	return map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode, "entryMode": subEntryMode(s)}
+	return map[string]interface{}{"id": s.ID, "name": s.Name, "token": s.Token, "format": s.Format, "ruleMode": s.RuleMode, "entryMode": subEntryMode(s),
+		"entryNames": !s.FixedNames()}
 }
 
 // subEntryMode (plan 297): the subscription's entry mode for views — "main"
@@ -935,7 +1043,7 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, err)
 		return
 	}
-	refs, routing, err := h.subValidate(r.Context(), uid, &req)
+	refs, routing, err := h.subValidate(r.Context(), uid, &req, req.EntryNames != nil && !*req.EntryNames)
 	if err != nil {
 		subFail(w, err)
 		return
@@ -959,7 +1067,7 @@ func (h *Handler) subCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().UnixMilli()
 	s := &model.UserSubscription{UserID: uid, Name: req.Name, Token: token, Format: req.Format, RuleMode: req.RuleMode, Items: sublink.RefsJSON(refs), Routing: routing, CreatedTime: now, UpdatedTime: now,
-		EntryMode: mode}
+		EntryMode: mode, EntryNames: req.EntryNames}
 	cap := model.MaxSubscriptionsPerUser
 	if admin {
 		cap = 0
@@ -991,7 +1099,11 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 		subFail(w, errors.New("订阅不存在"))
 		return
 	}
-	refs, routing, err := h.subValidate(r.Context(), uid, &req)
+	fixed := s.FixedNames()
+	if req.EntryNames != nil {
+		fixed = !*req.EntryNames
+	}
+	refs, routing, err := h.subValidate(r.Context(), uid, &req, fixed)
 	if err != nil {
 		subFail(w, err)
 		return
@@ -1012,6 +1124,15 @@ func (h *Handler) subUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.EntryMode = mode
+	}
+	if req.EntryNames != nil && (s.EntryNames == nil || *s.EntryNames != *req.EntryNames) {
+		// Plan 315: 「节点名带入口名」 on / off (an untouched NULL row stays NULL).
+		if _, err := h.repo.SetSubscriptionEntryNames(s.ID, uid, *req.EntryNames); err != nil {
+			subFail(w, errors.New("保存失败"))
+			return
+		}
+		v := *req.EntryNames
+		s.EntryNames = &v
 	}
 	h.subState().cache.purgeSub(s.ID)
 	h.subLinkGC(uid)

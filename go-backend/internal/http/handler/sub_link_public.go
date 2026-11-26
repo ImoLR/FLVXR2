@@ -206,7 +206,7 @@ func (h *Handler) subRenderFor(ctx context.Context, s *model.UserSubscription, f
 	if err != nil {
 		return nil, err
 	}
-	nodes, _ := d.resolve(refs, model.MaxSubscriptionNodes)
+	nodes, _ := d.withNames(s).resolve(refs, model.MaxSubscriptionNodes)
 	sublink.FinalizeNames(nodes)
 	if entryDomains {
 		nodes = sublink.UseEntryDomains(nodes)

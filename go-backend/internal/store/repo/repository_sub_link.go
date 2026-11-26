@@ -129,6 +129,15 @@ func (r *Repository) SetSubscriptionEntryMode(id, userID int64, mode string) (bo
 	return res.RowsAffected > 0, res.Error
 }
 
+// SetSubscriptionEntryNames (plan 315): 「节点名带入口名」 on (today's names)
+// or off (fixed names); false when the user's subscription does not exist.
+func (r *Repository) SetSubscriptionEntryNames(id, userID int64, on bool) (bool, error) {
+	res := r.db.Model(&model.UserSubscription{}).Where("id = ? AND user_id = ?", id, userID).Updates(map[string]interface{}{
+		"entry_names": on, "updated_time": time.Now().UnixMilli(),
+	})
+	return res.RowsAffected > 0, res.Error
+}
+
 func (r *Repository) DeleteSubscription(id, userID int64) (bool, error) {
 	res := r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&model.UserSubscription{})
 	return res.RowsAffected > 0, res.Error
@@ -150,7 +159,7 @@ func (r *Repository) MarkSubscriptionPulled(id, at int64, client string, nodes i
 func (r *Repository) AdminSubscriptionRows() ([]model.UserSubscription, error) {
 	var rows []model.UserSubscription
 	err := r.db.Select("id", "user_id", "name", "format", "rule_mode", "items", "last_pull_at", "last_pull_client", "last_pull_nodes",
-		"created_time", "routing", "entry_mode").Order("id").Find(&rows).Error
+		"created_time", "routing", "entry_mode", "entry_names").Order("id").Find(&rows).Error
 	return rows, err
 }
 
@@ -282,6 +291,10 @@ type SubPanelLink struct {
 	ExternalAuto bool
 	// Detail: "入口名 :端口" for rule links, "host:port" for 直连.
 	Detail string
+	// Plan 315 (rule links): the forward name and the entry node name, for a
+	// subscription with fixed node names (entry_names = false).
+	BaseName  string
+	EntryName string
 }
 
 // SubPanelData is everything of a user's panel a subscription can use.
@@ -420,7 +433,8 @@ func (r *Repository) SubPanelLinks(userID int64, forwardIDs, landingIDs []int64,
 				continue
 			}
 			seen[addr] = true
-			link := SubPanelLink{Rule: true, Chain: chain != nil, Ref: sublink.Ref{Kind: sublink.RefForwardLink, ForwardID: f.ID, Entry: sublink.EntryKey(e.NodeID, e.Host)}}
+			link := SubPanelLink{Rule: true, Chain: chain != nil, Ref: sublink.Ref{Kind: sublink.RefForwardLink, ForwardID: f.ID, Entry: sublink.EntryKey(e.NodeID, e.Host)},
+				BaseName: f.Name, EntryName: e.NodeName}
 			// Plan 302: an IPv6-only DDNS entry domain is built on its current
 			// IPv6 (key and detail keep the domain); the renderer writes the
 			// domain only for clients that resolve AAAA-only names.

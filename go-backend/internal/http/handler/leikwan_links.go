@@ -112,6 +112,13 @@ func leiKwanLinkKind(x model.LeiKwanRule) string {
 	return "address"
 }
 
+// lkFixedNames (plan 315): 生成订阅 creates subscriptions with fixed node
+// names (「节点名带入口名」 off; the 利群 nodes never carry an entry name).
+func lkFixedNames() *bool {
+	v := false
+	return &v
+}
+
 // leiKwanSubNodeName: 「利群·广港 · 我的规则」 (the line name + rule name).
 func leiKwanSubNodeName(line model.LeiKwanLine, x model.LeiKwanRule) string {
 	if line.Name == "" {
@@ -236,7 +243,8 @@ func (h *Handler) leiKwanEnsureSub(userID int64) (*model.UserSubscription, error
 	now := time.Now().UnixMilli()
 	routing := sublink.RoutingJSON(sublink.DefaultRouting())
 	s = &model.UserSubscription{UserID: userID, Name: lkSubName, Token: token, Format: sublink.FormatAuto, RuleMode: sublink.ModeCNDirect,
-		Items: sublink.RefsJSON([]sublink.Ref{{Kind: sublink.RefLeiKwanAll}}), Routing: &routing, CreatedTime: now, UpdatedTime: now, AutoKind: lkSubAutoKind}
+		Items: sublink.RefsJSON([]sublink.Ref{{Kind: sublink.RefLeiKwanAll}}), Routing: &routing, CreatedTime: now, UpdatedTime: now, AutoKind: lkSubAutoKind,
+		EntryNames: lkFixedNames()}
 	if err := h.repo.CreateSubscription(s, 0); err != nil {
 		return nil, errors.New("创建利群汇聚订阅失败")
 	}
@@ -343,7 +351,7 @@ func (h *Handler) leikwanRuleSub(w http.ResponseWriter, r *http.Request) {
 		leiKwanError(w, errors.New("读取订阅失败"))
 		return
 	}
-	_, counts := d.resolve(sublink.ParseRefs(s.Items), 0)
+	_, counts := d.withNames(s).resolve(sublink.ParseRefs(s.Items), 0)
 	rules, manual := 0, 0
 	if d.leikwan != nil {
 		rules = len(d.leikwan.rules)
@@ -409,7 +417,7 @@ func (h *Handler) leiKwanCreateLocalSub(owner int64, have []model.UserSubscripti
 	routing := sublink.RoutingJSON(sublink.DefaultRouting())
 	s := &model.UserSubscription{UserID: owner, Name: name, Token: token, Format: sublink.FormatAuto, RuleMode: sublink.ModeCNDirect,
 		Items: sublink.RefsJSON([]sublink.Ref{{Kind: sublink.RefLeiKwanAll}}), Routing: &routing, CreatedTime: now, UpdatedTime: now,
-		EntryMode: model.SubEntryLocal}
+		EntryMode: model.SubEntryLocal, EntryNames: lkFixedNames()}
 	if err := h.repo.CreateSubscription(s, 0); err != nil {
 		return nil, errors.New("创建手机本地订阅失败")
 	}

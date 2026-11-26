@@ -37,9 +37,22 @@ type UserSubscription struct {
 	// the im.gamer App while this phone's entry was 手机本地; works on any
 	// device running a LeiKwan client on 127.0.0.1). Nothing else changes.
 	EntryMode string `gorm:"type:varchar(10);not null;default:'main'" json:"entryMode"`
+	// EntryNames (plan 315 「节点名带入口名」): whether panel rule nodes carry
+	// the entry name. NULL (every subscription before plan 315) or true =
+	// today's names (「转发名 · 入口名」 on landing rules, chain / external
+	// rules with several entries); false = fixed names: the forward name only,
+	// 「 · 入口名」 only when this subscription holds the same forward through
+	// two or more entries (and a picked entry that no longer exists follows
+	// the forward's one remaining entry). The editor and 利群汇聚 「生成订阅」
+	// create new subscriptions with false.
+	EntryNames *bool `gorm:"column:entry_names" json:"-"`
 }
 
 func (UserSubscription) TableName() string { return "user_subscription" }
+
+// FixedNames (plan 315): node names do not follow the entry (entry_names =
+// false); NULL / true = the names as before plan 315.
+func (s UserSubscription) FixedNames() bool { return s.EntryNames != nil && !*s.EntryNames }
 
 // Sub entry modes (plan 297).
 const (
