@@ -42,7 +42,8 @@ Task `native-snell-mieru` (Claude xhigh), branch `feature/3.0.27-native-snell-mi
       Clash / sub identical to today.
 - [x] 10. Screenshots desktop + 390 px + dark → gallery :8791/native-snell-mieru/.
 - [x] 11. mmwx lessons list; draft Dmit T1 cutover plan (below).
-- [ ] 12. Push branch, CI green, ledger row 待发布 (等用户看截图), summary.
+- [x] 12. Push branch, CI green (45966662009), ledger row 待发布 (等用户看截图), summary
+      (/root/flvx-workers/runs/native-snell-mieru/summary.md). Lab leftovers, DB copies and the Go build cache cleaned.
 
 ## Evidence
 - Core check: pinned v1.4.83 = Core f6f58447 and previous pin v1.4.77 = 2bf03c9a both contain upstream Snell UDP fix
