@@ -683,8 +683,12 @@ func (h *Handler) subPool(w http.ResponseWriter, r *http.Request) {
 		return map[string]interface{}{"ref": subRefView(ref), "key": ref.Key(), "name": n.Name, "protocol": n.ProtocolLabel(), "detail": detail}
 	}
 	rules, landing, externals := []interface{}{}, []interface{}{}, []interface{}{}
+	labels := h.loadEntryLabels() // plan 321: 电信 / 联通 / IPv6 of each entry
 	for _, l := range d.panel.Links {
 		it := item(l.Ref, l.Node, l.Detail)
+		if lb, ok := labels.Of(l.Node.Server()); ok && !lb.Empty() {
+			it["entryLabel"] = lb
+		}
 		if l.Rule {
 			// Plan 315: the editor shows the fixed name from these.
 			it["base"], it["entryName"] = l.BaseName, l.EntryName

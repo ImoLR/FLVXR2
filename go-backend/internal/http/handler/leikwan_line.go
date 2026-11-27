@@ -326,6 +326,8 @@ type leiKwanEntryNode struct {
 	Forwards int    `json:"leikwanForwards"`
 	// Plan 295: when the stored flag went 离线 (node.updated_time; 0 = online).
 	OfflineSince int64 `json:"offlineSince,omitempty"`
+	// EntryLabel (plan 321): 电信 / 联通 / IPv6 of the entry's address.
+	EntryLabel *repo.EntryLabel `json:"entryLabel,omitempty"`
 }
 
 func (h *Handler) leiKwanEntryNodes(groupID int64) []leiKwanEntryNode {
@@ -337,12 +339,21 @@ func (h *Handler) leiKwanEntryNodes(groupID int64) []leiKwanEntryNode {
 	if err != nil {
 		return out
 	}
+	var labels *repo.EntryLabels
+	if len(nodes) > 0 {
+		labels = h.loadEntryLabels()
+	}
 	for _, n := range nodes {
 		var fw []model.LeiKwanDetectedForward
 		_ = json.Unmarshal([]byte(n.LeiKwanForwards), &fw)
 		e := leiKwanEntryNode{ID: n.ID, Name: n.Name, Host: n.ServerIP, Online: n.Status == 1, LeiKwan: n.LeiKwanStatus, Forwards: len(fw)}
 		if !e.Online && n.UpdatedTime.Valid {
 			e.OfflineSince = n.UpdatedTime.Int64
+		}
+		if l, ok := labels.Of(n.ServerIP); ok && !l.Empty() {
+			e.EntryLabel = &l
+		} else if l, ok := labels.Node(n.ID); ok && !l.Empty() {
+			e.EntryLabel = &l
 		}
 		out = append(out, e)
 	}

@@ -79,6 +79,11 @@ type Facts struct {
 	Users map[int64]User
 	// Names: every non-retired name plus the admin-deleted (blocked) tombstones.
 	Names []model.UserSubdomain
+	// Access (plan 321): node id → users who still need the node (a grant
+	// whose tunnel enters there, a forward port, a native landing / landing
+	// access, a 利群 grant entry). A name of a user without access there is
+	// retired ("no longer on the node"). nil = not loaded (rule off).
+	Access map[int64]map[int64]bool
 }
 
 // Change is a new lifecycle state for one existing name.
@@ -175,6 +180,12 @@ func Desired(f *Facts, n model.UserSubdomain) (state, reason string, unusedSince
 	if !ok {
 		return model.UserSubdomainRetired, model.UserSubdomainReasonNodeDeleted, 0
 	}
+	// Plan 321 (user 11-28): when nothing of his needs the node any more
+	// (last grant removed, last forward / landing gone) the name follows the
+	// plan-303 rule for "no longer on the node": record deleted, retired.
+	if f.Access != nil && !f.Access[n.NodeID][n.UserID] {
+		return model.UserSubdomainRetired, model.UserSubdomainReasonNoAccess, 0
+	}
 	if !node.Effective() {
 		return model.UserSubdomainPaused, model.UserSubdomainReasonNode, 0
 	}
@@ -258,6 +269,9 @@ func Compute(f *Facts) Plan {
 				}
 				have[key] = true
 				state, reason, _ := Desired(f, model.UserSubdomain{UserID: uid, NodeID: nodeID, RecordDomain: rec.Key})
+				if state == model.UserSubdomainRetired {
+					continue // plan 321: never reserve a name that would retire at once
+				}
 				p.Creates = append(p.Creates, Create{UserID: uid, NodeID: nodeID, RecordKey: rec.Key, State: state, Reason: reason})
 			}
 		}

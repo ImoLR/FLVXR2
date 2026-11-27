@@ -227,7 +227,7 @@ func (r *Repository) SaveNodeDDNSConfig(nodeID int64, enabled bool, providerID i
 				keep[old.ID] = true
 				updates := map[string]interface{}{
 					"role": rec.Role, "source": rec.Source, "source_prefix": rec.SourcePrefix,
-					"takeover": rec.Takeover, "inx": i, "updated_time": now,
+					"takeover": rec.Takeover, "inx": i, "updated_time": now, "carrier": rec.Carrier,
 				}
 				if old.Role != rec.Role || old.Source != rec.Source || old.SourcePrefix != rec.SourcePrefix {
 					updates["status"] = model.DDNSStatusPending
@@ -262,7 +262,7 @@ func (r *Repository) SaveNodeDDNSConfig(nodeID int64, enabled bool, providerID i
 			}
 			row := model.NodeDDNSRecord{
 				NodeID: nodeID, Domain: rec.Domain, RecordType: rec.RecordType, Role: rec.Role,
-				Source: rec.Source, SourcePrefix: rec.SourcePrefix, Takeover: rec.Takeover, Inx: i,
+				Source: rec.Source, SourcePrefix: rec.SourcePrefix, Takeover: rec.Takeover, Inx: i, Carrier: rec.Carrier,
 				Applied: rec.Applied, Status: model.DDNSStatusPending, CreatedTime: now, UpdatedTime: now,
 			}
 			if err := tx.Create(&row).Error; err != nil {

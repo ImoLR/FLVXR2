@@ -1115,6 +1115,11 @@ func (h *Handler) landingUserGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view["pools"], view["relatedServers"] = pools, related
+	// Plan 321: which grants each node row comes from (「授权：…」 under the
+	// server name; a row with no grant and no forward / landing goes away).
+	if grants := h.userServerGrants(req.UserID, q, related); len(grants) > 0 {
+		view["serverGrants"] = grants
+	}
 	if s.MaxNodesCustom {
 		view["customMaxNodes"] = s.MaxNodes
 	}

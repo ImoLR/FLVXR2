@@ -173,8 +173,8 @@ func (h *Handler) UserSubdomainKicker(next http.Handler) http.Handler {
 			return
 		}
 		path := r.URL.Path
-		if strings.HasPrefix(path, "/api/v1/node/user-subdomain/") {
-			return // runs its own pass
+		if strings.HasPrefix(path, "/api/v1/node/user-subdomain/") || strings.HasPrefix(path, "/api/v1/node/user-access/") {
+			return // runs its own pass (plan 321: the orphan dry run must stay a dry run)
 		}
 		matched := false
 		for _, p := range prefixes {
@@ -200,12 +200,86 @@ func (h *Handler) UserSubdomainKicker(next http.Handler) http.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), userSubReserveWait)
 		n := h.userSubReserve(ctx)
 		cancel()
+		// Plan 321: access just removed → his names on that node retire and
+		// his per-server row goes, also before the response leaves (the
+		// Cloudflare record is deleted by the pass kicked below).
+		h.userAccessCleanup()
 		if n > 0 {
 			h.userSubKickFast()
 			return
 		}
 		h.userSubKick()
 	})
+}
+
+// userAccessCleanup (plan 321): retire the names of users who no longer need
+// their node (DB only) and delete per-server rows nothing backs any more.
+// Skipped while a reconcile pass runs (it does the same right after).
+func (h *Handler) userAccessCleanup() {
+	if h == nil || h.repo == nil {
+		return
+	}
+	h.userSubRetireGone()
+	h.userServerQuotaPrune()
+}
+
+// userSubRetireGone applies only the plan-321 retirements (reason
+// no_access) of a fresh plan; everything else waits for the pass.
+func (h *Handler) userSubRetireGone() int {
+	m := h.userSubState()
+	if !m.run.TryLock() {
+		return 0
+	}
+	defer m.run.Unlock()
+	if work, err := h.repo.AnyUserSubdomainWork(); err != nil || !work {
+		return 0
+	}
+	facts, _, _, err := h.userSubFacts(m.now(), true)
+	if err != nil {
+		log.Printf("[user-subdomain] access check: %v", err)
+		return 0
+	}
+	plan := usersub.Compute(facts)
+	byID := make(map[int64]model.UserSubdomain, len(facts.Names))
+	for _, n := range facts.Names {
+		byID[n.ID] = n
+	}
+	var changes []usersub.Change
+	for _, c := range plan.Changes {
+		if c.State == model.UserSubdomainRetired && c.Reason == model.UserSubdomainReasonNoAccess {
+			changes = append(changes, c)
+		}
+	}
+	if len(changes) == 0 {
+		return 0
+	}
+	if err := h.repo.ApplyUserSubdomainChanges(changes); err != nil {
+		log.Printf("[user-subdomain] access retire: %v", err)
+		return 0
+	}
+	for _, c := range changes {
+		n := byID[c.ID]
+		log.Printf("[user-subdomain] %s retired (%s: user %d no longer uses node %d)", n.Domain, c.Reason, n.UserID, n.NodeID)
+		h.subState().cache.purgeUser(n.UserID)
+	}
+	return len(changes)
+}
+
+// userServerQuotaPrune deletes per-server rows (用户设置 → 服务器) of users
+// who no longer need that server. Idempotent.
+func (h *Handler) userServerQuotaPrune() int {
+	if any, err := h.repo.AnyUserServerQuotaRows(); err != nil || !any {
+		return 0
+	}
+	rows, err := h.repo.PruneUserServerQuotaOrphans(nil)
+	if err != nil {
+		log.Printf("[user-access] server rows: %v", err)
+		return 0
+	}
+	for _, row := range rows {
+		log.Printf("[user-access] server row %s %d of user %d removed (nothing of his uses it; used %d B this period)", row.ServerKind, row.ServerRefID, row.UserID, row.UsedIn+row.UsedOut)
+	}
+	return len(rows)
 }
 
 // runUserSubdomainLoop: kicks (debounced) and a full pass every 10 minutes;
@@ -256,6 +330,9 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 		passCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		h.userSubReconcile(passCtx, full, false)
 		cancel()
+		if full {
+			h.userServerQuotaPrune() // plan 321: anything a mutation path missed
+		}
 		m.mu.Lock()
 		wait := userSubFullEvery - m.now().Sub(m.lastFull)
 		if !m.nextDue.IsZero() {
@@ -519,6 +596,22 @@ func (h *Handler) userSubFacts(now time.Time, all bool) (*usersub.Facts, map[int
 	}
 	if facts.Names, err = h.repo.ListUserSubdomainsForPlan(); err != nil {
 		return nil, nil, nil, fmt.Errorf("names: %w", err)
+	}
+	if all {
+		// Plan 321: who still needs each node a name lives on (the
+		// reservation pass only creates names, it needs no access facts).
+		want := map[int64]bool{}
+		for _, id := range effective {
+			want[id] = true
+		}
+		for _, n := range facts.Names {
+			if n.State != model.UserSubdomainRetired {
+				want[n.NodeID] = true
+			}
+		}
+		if facts.Access, err = h.repo.UserSubdomainAccess(userSubKeys(want)); err != nil {
+			return nil, nil, nil, fmt.Errorf("access: %w", err)
+		}
 	}
 	userIDs := map[int64]bool{}
 	for _, users := range facts.Usage {
@@ -1373,6 +1466,7 @@ func (h *Handler) registerUserSubdomain(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/user-subdomain/delete", h.userSubDelete)
 	mux.HandleFunc("/api/v1/node/user-subdomain/allow", h.userSubAllow)
 	mux.HandleFunc("/api/v1/node/user-subdomain/sync", h.userSubSyncNow)
+	mux.HandleFunc("/api/v1/node/user-access/orphans", h.userAccessOrphans) // plan 321
 }
 
 type userSubForwardView = repo.UserSubdomainForward
@@ -1410,6 +1504,11 @@ type userSubItemView struct {
 	RecordDomain string `json:"recordDomain"`
 	RecordLabel  string `json:"recordLabel"`
 	TargetDomain string `json:"targetDomain"`
+	// Plan 321: the grants whose tunnel enters on the name's node (where the
+	// name comes from; none + no forward / landing = it retires).
+	Grants []repo.UserNodeGrant `json:"grants"`
+	// EntryLabel (plan 321): 电信 / 联通 / IPv6 of the record it points at.
+	EntryLabel *repo.EntryLabel `json:"entryLabel,omitempty"`
 }
 
 func (h *Handler) userSubList(w http.ResponseWriter, r *http.Request) {
@@ -1458,6 +1557,11 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 	if err != nil {
 		return nil, err
 	}
+	grants, err := h.repo.UserNodeGrants(userSubKeys(userIDs), userSubKeys(nodeIDs), true)
+	if err != nil {
+		return nil, err
+	}
+	labels := h.loadEntryLabels()
 	nodes, err := h.repo.ListUserSubdomainNodes()
 	if err != nil {
 		return nil, err
@@ -1471,7 +1575,11 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 			NodeID: row.NodeID, NodeName: nodeNames[row.NodeID], OriginNodeID: row.OriginNodeID, OriginNodeName: nodeNames[row.OriginNodeID],
 			Target: row.Target, Blocked: row.Blocked, CreatedTime: row.CreatedTime, RetiredAt: row.RetiredAt, UnusedSince: row.UnusedSince,
 			ReadyAt: row.ReadyAt, FailCount: row.FailCount, Hidden: usersub.Hidden(row),
-			Forwards: uses[[2]int64{row.UserID, row.NodeID}], Landings: landings[[2]int64{row.UserID, row.NodeID}]}
+			Forwards: uses[[2]int64{row.UserID, row.NodeID}], Landings: landings[[2]int64{row.UserID, row.NodeID}],
+			Grants: grants[[2]int64{row.UserID, row.NodeID}]}
+		if v.Grants == nil {
+			v.Grants = []repo.UserNodeGrant{}
+		}
 		if v.Forwards == nil {
 			v.Forwards = []userSubForwardView{}
 		}
@@ -1483,6 +1591,10 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 					v.RecordLabel = repo.UserSubdomainTargetLabel(t)
 				}
 			}
+		}
+		// Plan 321: the entry tag of the record the name points at.
+		if l, ok := labels.Of(v.TargetDomain); ok && v.TargetDomain != "" {
+			v.EntryLabel = &l
 		}
 		if v.UserName == "" {
 			v.UserName = fmt.Sprintf("（已删除用户 #%d）", row.UserID)

@@ -388,6 +388,9 @@ type ddnsRequestRecord struct {
 	Source   string `json:"source"`
 	Prefix   string `json:"prefix"`
 	Takeover bool   `json:"takeover"`
+	// Carrier (plan 321): 运营商标签 "" (auto) | ct | cu | cm | none; nil =
+	// unchanged (older clients).
+	Carrier *string `json:"carrier"`
 }
 
 type ddnsRequest struct {
@@ -581,6 +584,14 @@ func (h *Handler) validateDDNSRequest(ctx context.Context, r *http.Request, node
 		rec := model.NodeDDNSRecord{Domain: domain, RecordType: recordType, Role: role, Source: source, SourcePrefix: prefix, Takeover: in.Takeover}
 		if prev, ok := old[key]; ok {
 			rec.Applied = prev.Applied
+			rec.Carrier = prev.Carrier
+		}
+		if in.Carrier != nil {
+			c := strings.ToLower(strings.TrimSpace(*in.Carrier))
+			if !repo.ValidEntryCarrier(c) {
+				return nil, fmt.Errorf("%s：运营商标签无效", domain)
+			}
+			rec.Carrier = c
 		}
 		plan.records = append(plan.records, rec)
 	}
@@ -759,6 +770,10 @@ type ddnsRecordView struct {
 	LastError   string `json:"lastError"`
 	LastSyncAt  int64  `json:"lastSyncAt"`
 	LastCheckAt int64  `json:"lastCheckAt"`
+	// Carrier (plan 321): the stored choice ("" = auto); CarrierLabel = the
+	// tag users see (电信 / 联通 / 移动 / "").
+	Carrier      string `json:"carrier"`
+	CarrierLabel string `json:"carrierLabel"`
 }
 
 type ddnsNodeView struct {
@@ -820,6 +835,7 @@ func (h *Handler) ddnsNodeViews() (map[int64]*ddnsNodeView, error) {
 			Prefix: rec.SourcePrefix, Takeover: rec.Takeover, CurrentIP: rec.CurrentIP, TTL: rec.TTL,
 			Applied: rec.Applied, Status: rec.Status, LastError: rec.LastError,
 			LastSyncAt: rec.LastSyncAt, LastCheckAt: rec.LastCheckAt,
+			Carrier: rec.Carrier, CarrierLabel: repo.EntryCarrierLabel(repo.DDNSRecordCarrier(rec)),
 		})
 	}
 	for _, v := range out {

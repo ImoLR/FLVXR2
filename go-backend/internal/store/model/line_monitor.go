@@ -12,6 +12,9 @@ type LineMonitorChart struct {
 	Sort        int    `gorm:"not null;default:0" json:"sort"`
 	CreatedTime int64  `gorm:"column:created_time;not null;default:0" json:"createdTime"`
 	UpdatedTime int64  `gorm:"column:updated_time;not null;default:0" json:"updatedTime"`
+	// UserHidden (plan 321): 「用户可见」 off — normal users do not see this
+	// chart on their read-only 线路监测 page. Default visible.
+	UserHidden bool `gorm:"column:user_hidden;not null;default:false" json:"userHidden"`
 }
 
 func (LineMonitorChart) TableName() string { return "line_monitor_chart" }

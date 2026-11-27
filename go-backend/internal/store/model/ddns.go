@@ -47,6 +47,10 @@ type NodeDDNSRecord struct {
 	SourcePrefix string `gorm:"column:source_prefix;type:varchar(64);not null;default:''" json:"prefix"`
 	Takeover     bool   `gorm:"not null;default:false" json:"takeover"`
 	Inx          int    `gorm:"not null;default:0" json:"inx"`
+	// Carrier (plan 321): the 运营商 tag shown next to this entry — "" = from
+	// the source (ct 电信 / cu 联通 / cm 移动, else none), or the admin's
+	// choice ct | cu | cm | none. Display only: never changes the sync.
+	Carrier string `gorm:"column:carrier;type:varchar(8);not null;default:''" json:"carrier"`
 	// Sync state.
 	ZoneID      string `gorm:"column:zone_id;type:varchar(64);not null;default:''" json:"-"`
 	RecordID    string `gorm:"column:record_id;type:varchar(64);not null;default:''" json:"-"`

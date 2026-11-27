@@ -442,6 +442,11 @@ func TestUserSubdomainContract(t *testing.T) {
 
 			// 7. Round 2: the last forward on the node gone → the name stays
 			// live (no pause / retire while the user exists and is active).
+			// Plan 321: as long as a grant of his still enters there.
+			grantTunnel := model.Tunnel{Name: "沪日 授权", TrafficRatio: 1, Type: 1, Protocol: "tls", Flow: 99999, CreatedTime: now, UpdatedTime: now, Status: 1}
+			mustCreate(&grantTunnel)
+			mustCreate(&model.ChainTunnel{TunnelID: grantTunnel.ID, ChainType: "1", NodeID: 51},
+				&model.UserTunnel{UserID: 802, TunnelID: grantTunnel.ID, Num: 10, Flow: 100, FlowResetTime: 1, ExpTime: now + 30*86400000, Status: 1})
 			db.Where("forward_id = ?", f802).Delete(&model.ForwardPort{})
 			db.Where("id = ?", f802).Delete(&model.Forward{})
 			reconcile()

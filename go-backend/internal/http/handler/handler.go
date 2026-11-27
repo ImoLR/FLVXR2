@@ -374,6 +374,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/line-monitor/chart/reorder", h.lineMonitorChartReorder)
 	mux.HandleFunc("/api/v1/node/line-monitor/line/pause", h.lineMonitorLinePause)
 	mux.HandleFunc("/api/v1/node/line-monitor/data", h.lineMonitorDataHandler)
+	mux.HandleFunc("/api/v1/node/line-monitor/chart/user-visible", h.lineMonitorChartUserVisible) // plan 321
+	// Plan 321: the read-only user view (any logged-in user).
+	mux.HandleFunc("/api/v1/line-monitor/list", h.lineMonitorUserList)
+	mux.HandleFunc("/api/v1/line-monitor/data", h.lineMonitorUserDataHandler)
 	// Plan 255 part 2 检测端口 (admin only like the rest of /api/v1/node/).
 	mux.HandleFunc("/api/v1/node/line-monitor/check-port/verify", h.lineMonitorCheckPortVerify)
 	mux.HandleFunc("/api/v1/node/line-monitor/check-port/rotate", h.lineMonitorCheckPortRotate)
@@ -1009,6 +1013,7 @@ func (h *Handler) tunnelList(w http.ResponseWriter, r *http.Request) {
 	}
 	h.attachBestPathStatesOrLog(items)
 	h.attachWarmPoolStates(items)
+	h.attachTunnelEntryLabels(items) // plan 321
 	response.WriteJSON(w, response.OK(items))
 }
 
@@ -1120,6 +1125,9 @@ func (h *Handler) forwardList(w http.ResponseWriter, r *http.Request) {
 	h.attachRuleBestPicksOrLog(items, entryNodes)
 	// Plan 303: each rule's entry address uses its owner's 专属域名.
 	h.userSubRewriteForwardItems(items, entryNodes, roleID == 0)
+	// Plan 321: 电信 / 联通 / IPv6 tags of the entry addresses (after the
+	// rewrite: a user's own names carry their record's tag).
+	h.attachEntryLabels(items, "inIp", "entryLabels")
 	// Plan 249: the 预热 tag of every rule (memory only; users: green only).
 	h.attachForwardWarmPoolStatesOrLog(items, entryNodes, roleID == 0)
 

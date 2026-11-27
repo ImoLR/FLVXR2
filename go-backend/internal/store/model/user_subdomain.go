@@ -20,6 +20,7 @@ const (
 	UserSubdomainReasonNodeDeleted = "node_deleted"
 	UserSubdomainReasonRenamed     = "renamed" // 换新名
 	UserSubdomainReasonAdmin       = "admin"   // 删除 by the admin
+	UserSubdomainReasonNoAccess    = "no_access" // plan 321: nothing of the user needs the node any more (已不在该节点)
 
 	// Sync status of the CF side.
 	UserSubdomainSyncPending = "pending"

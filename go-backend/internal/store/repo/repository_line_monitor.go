@@ -307,6 +307,16 @@ func (r *Repository) DeleteLineMonitorChart(id int64) (LineMonitorSaveResult, er
 
 // ReorderLineMonitorCharts stores the display order (ids in order; unknown ids
 // are ignored, charts not listed keep their place after the listed ones).
+// SetLineMonitorChartUserHidden (plan 321) sets the 「用户可见」 switch of a
+// chart (a column write only). false = no such chart.
+func (r *Repository) SetLineMonitorChartUserHidden(id int64, hidden bool) (bool, error) {
+	c, err := r.GetLineMonitorChart(id)
+	if err != nil || c == nil {
+		return false, err
+	}
+	return true, r.db.Model(&model.LineMonitorChart{}).Where("id = ?", id).Update("user_hidden", hidden).Error
+}
+
 func (r *Repository) ReorderLineMonitorCharts(ids []int64) error {
 	if r == nil || r.db == nil {
 		return errors.New("repository not initialized")
