@@ -119,20 +119,30 @@ export const isEndInLine = (l?: Pick<LineMonitorLine, "kind"> | null) =>
 /** 「AWS HK → Fachost seednet 黑五」 (label wins when set); 端内 lines
  * 「利群·广港 端内」 (+ the fixed 利群入口). */
 export const lineTitle = (l: LineMonitorLine) => {
+  const fixed = l.sourceNodeId > 0 || l.fixedEntry === true;
+
   if (isEndInLine(l))
-    return `${l.leikwanLineName || `专线 ${l.leikwanLineId}`} 端内${l.sourceNodeId > 0 ? `（${l.sourceName || `节点 ${l.sourceNodeId}`}）` : ""}`;
+    return `${l.leikwanLineName || `专线 ${l.leikwanLineId}`} 端内${fixed ? `（${l.sourceName || `节点 ${l.sourceNodeId}`}）` : ""}`;
+  // Plan 321: the user view has no host — the target's name only
+  // (「自定义目标」 for custom hosts).
   const target =
     l.targetNodeId > 0
       ? l.targetName || `节点 ${l.targetNodeId}`
-      : l.effectiveHost || l.host;
+      : l.effectiveHost || l.host || l.targetName || "自定义目标";
 
   return `${l.sourceName || `节点 ${l.sourceNodeId}`} → ${target}`;
 };
 
+/** Plan 321: lines of the read-only user view carry no address. */
+export const isUserViewLine = (l: LineMonitorLine) =>
+  !isEndInLine(l) && !l.host && !l.effectiveHost && l.port === 0;
+
 export const lineSubtitle = (l: LineMonitorLine) =>
   isEndInLine(l)
-    ? `全程 − 入口段 · ${l.sourceNodeId > 0 ? "固定入口机" : "入口机自动"} · 每分钟`
-    : `${l.effectiveHost || "—"}:${l.port}`;
+    ? `全程 − 入口段 · ${l.sourceNodeId > 0 || l.fixedEntry ? "固定入口机" : "入口机自动"} · 每分钟`
+    : isUserViewLine(l)
+      ? "TCP · 每 30 秒"
+      : `${l.effectiveHost || "—"}:${l.port}`;
 
 // Time ticks at whole local minutes / hours / days.
 const TICK_STEPS = [

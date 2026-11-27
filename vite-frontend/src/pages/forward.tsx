@@ -164,6 +164,13 @@ import {
   hasReadyingEntry,
   type EntryNotice,
 } from "@/pages/forward/entry-name-tags";
+import {
+  type EntryLabel,
+  EntryLabelLine,
+  EntryLabelPills,
+  entryLabelOf,
+  entryLabelText,
+} from "@/components/entry-label";
 import { canonicalIp, parseExtraIPs } from "@/utils/node-ips";
 import { timestampToCalendarDate, calendarDateToTimestamp } from "@/utils/date";
 import { MULTI_REGION, compareRegions, exitRegionKey, exitRegionLabel, regionLabel } from "@/utils/region";
@@ -182,6 +189,8 @@ export interface Forward {
   entryNotices?: EntryNotice[];
   // Plan 305 (admins only): entry nodes this forward keeps its old address on.
   entryKeptNodes?: number[];
+  // Plan 321: host → 电信 / 联通 / IPv6 tag of the entry addresses in inIp.
+  entryLabels?: Record<string, EntryLabel>;
   inPort: number;
   remoteAddr: string;
   interfaceName?: string;
@@ -251,6 +260,8 @@ interface Tunnel {
   name: string;
   type?: number;
   inIp?: string;
+  // Plan 321 (admin tunnel list): host → tag of the in_ip addresses.
+  inIpLabels?: Record<string, EntryLabel>;
   inNodeId?: Array<{ nodeId: number }>;
   inNodePortSta?: number;
   inNodePortEnd?: number;
@@ -1289,6 +1300,11 @@ const SortableTableRow = ({
             {inAddrNoPorts || "—"}
           </span>
         </div>
+        <EntryLabelLine
+          addresses={inAddrNoPorts}
+          className="mt-0.5"
+          labels={forward.entryLabels}
+        />
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
         <EntryKeptTag
           admin={isAdmin}
@@ -1637,6 +1653,11 @@ const SortableCompactTableRow = ({
             {inAddrNoPorts || "—"}
           </span>
         </div>
+        <EntryLabelLine
+          addresses={inAddrNoPorts}
+          className="mt-0.5"
+          labels={forward.entryLabels}
+        />
         <EntryNameTags className="mt-0.5" tags={forward.entryNameTags} />
         <EntryKeptTag
           admin={isAdmin}
@@ -2279,6 +2300,15 @@ export default function ForwardPage() {
 
     return map;
   }, [allTunnels, nodes]);
+  // Plan 321: 电信 / 联通 / IPv6 of every in_ip address (admin tunnel list).
+  const tunnelInIpLabels = useMemo(() => {
+    const out: Record<string, EntryLabel> = {};
+
+    for (const tunnel of allTunnels)
+      Object.assign(out, tunnel.inIpLabels || {});
+
+    return out;
+  }, [allTunnels]);
   const currentTunnelIpOptions = useMemo(() => {
     if (!form.tunnelId) {
       return [];
@@ -5565,6 +5595,11 @@ export default function ForwardPage() {
                   </code>
                 </div>
               </div>
+              <EntryLabelLine
+                addresses={inAddrNoPorts}
+                className="px-1"
+                labels={forward.entryLabels}
+              />
               <EntryNameTags className="px-1" tags={forward.entryNameTags} />
               <EntryKeptTag
                 admin={isAdmin}
@@ -7128,7 +7163,17 @@ export default function ForwardPage() {
                               默认入口IP
                             </SelectItem>
                             {currentTunnelIpOptions.map((ip) => (
-                              <SelectItem key={ip}>{ip}</SelectItem>
+                              <SelectItem
+                                key={ip}
+                                textValue={`${ip}${entryLabelText(entryLabelOf(tunnelInIpLabels, ip)) ? ` ${entryLabelText(entryLabelOf(tunnelInIpLabels, ip))}` : ""}`}
+                              >
+                                <span className="inline-flex min-w-0 items-center gap-1.5">
+                                  <span className="truncate">{ip}</span>
+                                  <EntryLabelPills
+                                    label={entryLabelOf(tunnelInIpLabels, ip)}
+                                  />
+                                </span>
+                              </SelectItem>
                             ))}
                           </Select>
                           {/* 有效期 */}

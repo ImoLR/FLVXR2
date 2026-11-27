@@ -257,6 +257,27 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
       ),
     },
     {
+      // Plan 321: 线路监测 is its own entry (admins edit, users read-only).
+      path: "/node-monitor",
+      label: "线路监测",
+      icon: (
+        <svg
+          aria-hidden="true"
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.9}
+          viewBox="0 0 24 24"
+        >
+          <path
+            d="M3 12h4l2.5-6 4 12 2.5-6H21"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
+    },
+    {
       path: "/user",
       label: "用户",
       adminOnly: true,

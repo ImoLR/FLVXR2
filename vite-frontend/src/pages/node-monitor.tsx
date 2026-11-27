@@ -16,6 +16,7 @@ import { Activity, ArrowLeft } from "lucide-react";
 import { ChartCard } from "./node-monitor/chart-card";
 import { ChartDialog } from "./node-monitor/chart-dialog";
 import { CheckCommandModal, windowText } from "./node-monitor/check-port";
+import { UserLineMonitorView } from "./node-monitor/user-view";
 
 import {
   deleteLineMonitorChart,
@@ -24,6 +25,7 @@ import {
   pauseLineMonitorLine,
   reorderLineMonitorCharts,
   rotateLineCheckPort,
+  setLineMonitorChartUserVisible,
   verifyLineCheckPort,
 } from "@/api/line-monitor";
 import { AnimatedPage } from "@/components/animated-page";
@@ -41,8 +43,13 @@ import { useThemeContext } from "@/themes/context";
 import { isAdmin } from "@/utils/auth";
 
 // Plan 255 「线路监测」: admin-built comparison charts (source node → target TCP
-// latency, 丢包, 断流) — reached from the 节点 page toolbar only.
+// latency, 丢包, 断流). Plan 321: its own menu entry; normal users get the
+// read-only view of the charts left 「用户可见」.
 export default function NodeMonitorPage() {
+  return isAdmin() ? <AdminLineMonitorPage /> : <UserLineMonitorView />;
+}
+
+function AdminLineMonitorPage() {
   const admin = isAdmin();
   const navigate = useNavigate();
   const { effectiveMode } = useThemeContext();
@@ -213,6 +220,34 @@ export default function NodeMonitorPage() {
     [reload],
   );
 
+  // Plan 321: 「用户可见」 per chart (column write, no runtime change).
+  const [visibleBusy, setVisibleBusy] = useState<number | null>(null);
+  const onUserVisible = useCallback(
+    async (chart: LineMonitorChart, visible: boolean) => {
+      setVisibleBusy(chart.id);
+      const res = await setLineMonitorChartUserVisible(chart.id, visible);
+
+      setVisibleBusy(null);
+      if (res.code !== 0) {
+        toast.error(res.msg || "操作失败");
+
+        return;
+      }
+      setList((prev) =>
+        prev
+          ? {
+              ...prev,
+              charts: prev.charts.map((c) =>
+                c.id === chart.id ? { ...c, userHidden: !visible } : c,
+              ),
+            }
+          : prev,
+      );
+      toast.success(visible ? "普通用户可以看到这张图" : "已对普通用户隐藏");
+    },
+    [],
+  );
+
   const confirmDelete = async () => {
     if (!deleting) return;
     setDeleteBusy(true);
@@ -334,6 +369,8 @@ export default function NodeMonitorPage() {
               onEdit={onEdit}
               onMove={onMove}
               onPause={onPause}
+              onUserVisible={onUserVisible}
+              userVisibleBusy={visibleBusy === c.id}
             />
           ))}
         </div>

@@ -56,7 +56,7 @@ func TestEntryLabels(t *testing.T) {
 		"paid-v4.bgp1.leikwanhost.com":  {},
 		"bestvm-sg.imgamer.top":         {},
 		"bestvm-sg-v6.imgamer.top":      {IPv6: true},
-		"vmsilo-tw.imgamer.top":         {IPv6: true},  // admin: 不标
+		"vmsilo-tw.imgamer.top":         {IPv6: true},    // admin: 不标
 		"baidu-gz.imgamer.top":          {Carrier: "电信"}, // admin choice on an A record
 		"dual.imgamer.top":              {Carrier: "电信"}, // dual stack: no IPv6 tag
 		"45.32.10.39:30001":             {},

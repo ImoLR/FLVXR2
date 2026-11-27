@@ -55,6 +55,7 @@ import { landingToneClass, type LandingTone } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Card, CardBody, CardHeader } from "@/shadcn-bridge/heroui/card";
 import { Input } from "@/shadcn-bridge/heroui/input";
+import { Switch } from "@/shadcn-bridge/heroui/switch";
 
 // Plot geometry shared by the recharts plot, the status lanes and the time
 // axis below them (same left/right insets → aligned columns).
@@ -172,16 +173,51 @@ interface ChartCardProps {
   total: number;
   dark: boolean;
   isMobile: boolean;
-  onEdit: (chart: LineMonitorChart) => void;
-  onDelete: (chart: LineMonitorChart) => void;
-  onMove: (chart: LineMonitorChart, dir: -1 | 1) => void;
-  onPause: (line: LineMonitorLine, paused: boolean) => void;
+  onEdit?: (chart: LineMonitorChart) => void;
+  onDelete?: (chart: LineMonitorChart) => void;
+  onMove?: (chart: LineMonitorChart, dir: -1 | 1) => void;
+  onPause?: (line: LineMonitorLine, paused: boolean) => void;
+  /** Plan 321: the read-only user view (no 编辑 / 删除 / 排序 / 暂停 / 检测端口). */
+  readOnly?: boolean;
+  /** Plan 321: where the chart data comes from (the user view's endpoint). */
+  loadData?: typeof getLineMonitorData;
+  /** Plan 321 (admin): the 「用户可见」 switch. */
+  onUserVisible?: (chart: LineMonitorChart, visible: boolean) => void;
+  userVisibleBusy?: boolean;
   /** plan 255 part 2: 换一个端口 / 重新开启 / 复制开启命令 */
   onCheckPort?: (
     line: LineMonitorLine,
     action: "rotate" | "verify" | "command",
   ) => void;
   checkBusyId?: number | null;
+}
+
+/** Plan 321 (admin): normal users see the chart on their read-only page. */
+function UserVisibleSwitch({
+  chart,
+  busy,
+  onChange,
+}: {
+  chart: LineMonitorChart;
+  busy: boolean;
+  onChange: (chart: LineMonitorChart, visible: boolean) => void;
+}) {
+  return (
+    <label
+      className="mr-1 flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-default-600"
+      data-testid={`lm-user-visible-${chart.id}`}
+      title="打开后普通用户可以在「线路监测」里看到这张图（只读：线路名、延迟、丢包、断流；看不到 IP、域名和端口）"
+    >
+      <Switch
+        aria-label="用户可见"
+        isDisabled={busy}
+        isSelected={!chart.userHidden}
+        size="sm"
+        onValueChange={(v) => onChange(chart, v)}
+      />
+      用户可见
+    </label>
+  );
 }
 
 export const ChartCard = memo(function ChartCard({
@@ -196,6 +232,10 @@ export const ChartCard = memo(function ChartCard({
   onPause,
   onCheckPort,
   checkBusyId = null,
+  readOnly = false,
+  loadData = getLineMonitorData,
+  onUserVisible,
+  userVisibleBusy = false,
 }: ChartCardProps) {
   const [view, setView] = useState<View>(() => loadRange(chart.id));
   const [data, setData] = useState<LineMonitorData | null>(null);
@@ -240,7 +280,7 @@ export const ChartCard = memo(function ChartCard({
 
   const load = useCallback(async () => {
     const seq = ++reqSeq.current;
-    const res = await getLineMonitorData({ chartId: chart.id, ...query });
+    const res = await loadData({ chartId: chart.id, ...query });
 
     if (seq !== reqSeq.current) return;
     if (res.code === 0 && res.data) {
@@ -249,7 +289,7 @@ export const ChartCard = memo(function ChartCard({
     } else {
       setError(res.msg || "加载失败");
     }
-  }, [chart.id, query]);
+  }, [chart.id, query, loadData]);
 
   useEffect(() => {
     void load();
@@ -717,46 +757,59 @@ export const ChartCard = memo(function ChartCard({
           <h3 className="truncate text-base font-semibold">{chart.name}</h3>
           <Pill tone="purple">{lines.length} 条线路</Pill>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {index > 0 && (
-            <Button
-              isIconOnly
-              aria-label="上移"
-              size="sm"
-              variant="flat"
-              onPress={() => onMove(chart, -1)}
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          )}
-          {index < total - 1 && (
-            <Button
-              isIconOnly
-              aria-label="下移"
-              size="sm"
-              variant="flat"
-              onPress={() => onMove(chart, 1)}
-            >
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            color="primary"
-            size="sm"
-            variant="flat"
-            onPress={() => onEdit(chart)}
-          >
-            编辑
-          </Button>
-          <Button
-            color="danger"
-            size="sm"
-            variant="flat"
-            onPress={() => onDelete(chart)}
-          >
-            删除
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {onUserVisible && (
+              <UserVisibleSwitch
+                busy={userVisibleBusy}
+                chart={chart}
+                onChange={onUserVisible}
+              />
+            )}
+            {index > 0 && onMove && (
+              <Button
+                isIconOnly
+                aria-label="上移"
+                size="sm"
+                variant="flat"
+                onPress={() => onMove(chart, -1)}
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            )}
+            {index < total - 1 && onMove && (
+              <Button
+                isIconOnly
+                aria-label="下移"
+                size="sm"
+                variant="flat"
+                onPress={() => onMove(chart, 1)}
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            )}
+            {onEdit && (
+              <Button
+                color="primary"
+                size="sm"
+                variant="flat"
+                onPress={() => onEdit(chart)}
+              >
+                编辑
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                color="danger"
+                size="sm"
+                variant="flat"
+                onPress={() => onDelete(chart)}
+              >
+                删除
+              </Button>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardBody className="space-y-3 pt-0">
         {/* range picker */}
@@ -888,20 +941,22 @@ export const ChartCard = memo(function ChartCard({
                     {lv.status === 0 && lv.reason ? `·${lv.reason}` : ""}
                   </Pill>
                 ) : null}
-                <button
-                  className={`shrink-0 rounded-full px-2 text-xs font-semibold leading-[18px] ${landingToneClass[l.paused === 1 ? "green" : "slate"]}`}
-                  type="button"
-                  onClick={() => onPause(l, l.paused !== 1)}
-                >
-                  {l.paused === 1 ? "恢复" : "暂停"}
-                </button>
+                {!readOnly && onPause && (
+                  <button
+                    className={`shrink-0 rounded-full px-2 text-xs font-semibold leading-[18px] ${landingToneClass[l.paused === 1 ? "green" : "slate"]}`}
+                    type="button"
+                    onClick={() => onPause(l, l.paused !== 1)}
+                  >
+                    {l.paused === 1 ? "恢复" : "暂停"}
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
 
         {/* plan 255 part 2: 检测端口 per line */}
-        {onCheckPort && (
+        {onCheckPort && !readOnly && (
           <CheckPortRows
             busyId={checkBusyId}
             colors={colors}

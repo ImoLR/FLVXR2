@@ -68,6 +68,10 @@ export interface LineMonitorLine {
   kind?: LineKind;
   leikwanLineId?: number;
   leikwanLineName?: string;
+  // Plan 321 (user view): the target is a custom host (its name is
+  // 「自定义目标」, never the host) / the 端内 line's 利群入口 is fixed.
+  targetCustom?: boolean;
+  fixedEntry?: boolean;
 }
 
 /** Plan 310 r3: "" = TCP source → target; "lk_endin" = 利群专线端内. */
@@ -78,6 +82,8 @@ export interface LineMonitorChart {
   name: string;
   sort: number;
   lines: LineMonitorLine[];
+  /** Plan 321: 「用户可见」 off (admin list only). */
+  userHidden?: boolean;
 }
 
 export interface LineMonitorList {
@@ -310,3 +316,79 @@ export const testLineCheckPort = (data: {
     `${base}/check-port/test`,
     data,
   );
+
+// ── Plan 321: 线路监测 for normal users (read-only) ──
+
+/** One line as a normal user sees it: names and numbers only (no IP, host,
+ * port, node id or probe error text). */
+export interface LineMonitorUserLine {
+  id: number;
+  chartId: number;
+  kind?: LineKind;
+  label: string;
+  color: number;
+  paused: number;
+  sort: number;
+  sourceName: string;
+  sourceOnline: boolean;
+  targetName: string;
+  targetCustom?: boolean;
+  leikwanLineName?: string;
+  fixedEntry?: boolean;
+  live?: LineMonitorLive;
+  createdTime: number;
+}
+
+export interface LineMonitorUserChart {
+  id: number;
+  name: string;
+  sort: number;
+  lines: LineMonitorUserLine[];
+}
+
+export interface LineMonitorUserList {
+  charts: LineMonitorUserChart[];
+  slotSeconds: number;
+  retentionDay: number;
+}
+
+export const getUserLineMonitorList = () =>
+  Network.post<LineMonitorUserList>("/line-monitor/list", {});
+
+export const getUserLineMonitorData = (data: {
+  chartId: number;
+  range: LineMonitorRange;
+  from?: number;
+  to?: number;
+}) => Network.post<LineMonitorData>("/line-monitor/data", data);
+
+/** Admin: the per-chart 「用户可见」 switch. */
+export const setLineMonitorChartUserVisible = (id: number, visible: boolean) =>
+  Network.post<{ id: number; userHidden: boolean }>(
+    `${base}/chart/user-visible`,
+    { id, visible },
+  );
+
+/** The user view's lines in the admin line shape (empty address fields). */
+export const userLineAsLine = (l: LineMonitorUserLine): LineMonitorLine => ({
+  id: l.id,
+  chartId: l.chartId,
+  sourceNodeId: 0,
+  targetNodeId: 0,
+  host: "",
+  port: 0,
+  label: l.label,
+  color: l.color,
+  paused: l.paused,
+  sort: l.sort,
+  createdTime: l.createdTime,
+  sourceName: l.sourceName,
+  sourceOnline: l.sourceOnline,
+  targetName: l.targetName,
+  effectiveHost: "",
+  live: l.live,
+  kind: l.kind,
+  leikwanLineName: l.leikwanLineName,
+  targetCustom: l.targetCustom,
+  fixedEntry: l.fixedEntry,
+});
