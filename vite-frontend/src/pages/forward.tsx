@@ -795,6 +795,11 @@ const mapForwardApiItems = (items: ForwardApiItem[]): Forward[] => {
       ((forward as any).entryNotices as EntryNotice[] | undefined) || undefined,
     entryKeptNodes:
       ((forward as any).entryKeptNodes as number[] | undefined) || undefined,
+    // Plan 321: 电信 / 联通 / IPv6 of the entry addresses in inIp.
+    entryLabels:
+      ((forward as any).entryLabels as
+        | Record<string, EntryLabel>
+        | undefined) || undefined,
     inPort: forward.inPort ?? 0,
     // A chain rule (plan 108) shows the user's own node as its target; the
     // rule's real 127.0.0.1 target is internal.
