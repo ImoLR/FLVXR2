@@ -35,17 +35,50 @@ Task `native-snell-mieru` (Claude xhigh), branch `feature/3.0.27-native-snell-mi
 - [x] 5. Backend unit/contract tests: caps gating, old-agent refusal, desired JSON, byte-identical links / Clash /
       Surge / subscriptions native vs shared.
 - [x] 6. Frontend: 扩展协议 box + create-node for native Snell / Mieru (add only); `npm run build`.
-- [ ] 7. Full tests: go-backend vet + test (SQLite + PG handler/repo/contract `-p 1`), go-gost/x landing + socket.
-- [ ] 8. Lab (netns, real pinned Core, mihomo ≥ 1.19.32): Snell v4/v5 × obfs none/http/tls TCP + UDP DNS;
+- [x] 7. Full tests: go-backend vet + test (SQLite + PG handler/repo/contract `-p 1`), go-gost/x landing + socket.
+- [x] 8. Lab (netns, real pinned Core, mihomo ≥ 1.19.32): Snell v4/v5 × obfs none/http/tls TCP + UDP DNS;
       Mieru TCP + UDP: connect, counters, conn cap, online-IP cap, disable → cut, rate, warm idle hold, CPU vs VLESS.
-- [ ] 9. Prod-DB copy: render before/after byte-identical for every existing server; node 168 as native → link /
+- [x] 9. Prod-DB copy: render before/after byte-identical for every existing server; node 168 as native → link /
       Clash / sub identical to today.
-- [ ] 10. Screenshots desktop + 390 px + dark → gallery :8791/native-snell-mieru/.
-- [ ] 11. mmwx lessons list; draft Dmit T1 cutover plan (below).
+- [x] 10. Screenshots desktop + 390 px + dark → gallery :8791/native-snell-mieru/.
+- [x] 11. mmwx lessons list; draft Dmit T1 cutover plan (below).
 - [ ] 12. Push branch, CI green, ledger row 待发布 (等用户看截图), summary.
 
 ## Evidence
-(filled in as tasks finish)
+- Core check: pinned v1.4.83 = Core f6f58447 and previous pin v1.4.77 = 2bf03c9a both contain upstream Snell UDP fix
+  3f844db6 (git ancestry in the Core repo); the pinned binary lists `snell.udp_per_packet_target` (+
+  `anytls.downlink_stats`, `scan_guard.v1`) on `/v1/features` (TestNativeSnellMieruRealCore). No Snell UDP gate needed.
+- Tests: go-backend `go vet ./...` ok; SQLite `go test ./...` all ok (first run: one old test still expected plan-121
+  「Snell / Mieru 只支持妙妙屋共享」 → updated to the plan-317 rule, repo package re-run ok); PG 18 `-p 1`
+  handler 546 s / repo 871 s / contract 933 s ok. go-gost/x: landing + socket ok except
+  TestLandingRealCoreUpgradeRestart (fails the same on unmodified fork.176 = missing download stub, pre-existing) and
+  TestEgressRealCoreAcceptsRenderedConfig (needs FLVX_LANDING_GEODIR; passes with it); `go vet` ok; `npm run build` ok.
+- netns lab (TestNativeSnellMieruNetnsE2E, real Core + mihomo 1.19.32, RTT 10 ms, results work/sm-e2e.json):
+  - connect TCP + UDP DNS to two servers in one association (per-packet target): SS2022, VLESS Reality, Snell v4,
+    v5, v4 TLS obfs, v5 HTTP obfs, Mieru TCP, Mieru UDP — 8/8 both.
+  - 10 parallel streams, 84 MB down / 21 MB up, Core counters within 1 % (Snell 84.3 / 21.1, Mieru TCP 84.8 / 21.1).
+    Core CPU s/GB down: VLESS 6.1 · SS2022 5.4 · Snell v4 7.6 · Snell v5 5.0 · Mieru TCP 6.6 · Mieru UDP 128.
+  - 连接数 2 仅入站: Snell 2/4, Mieru 2/4 accepted (Core inbound 2); 总连接数 2: 1/4 each (= in + out sockets, as SS2022).
+  - online IPs 1: second IP refused while the first holds (Snell, Mieru TCP); freed after the Core's 30 s grace.
+  - 速率 10 Mbps: Snell 9.6 / 10.4, Mieru TCP 9.4 / 10.2 (down / up Mbps).
+  - warm pool: 8 silent conns per port aged 135 s all alive; 3/3 real clients through aged conns (Snell + Mieru); one
+    untouched silent conn held 371.6 s (TCP_DEFER_ACCEPT 130 on the TCP socket only).
+  - disable: Snell 2/2 streams cut in 0.2 s, Mieru TCP 2/2 in 1.4 s, new conns refused; Core epoch unchanged.
+  - **Mieru over a UDP underlay** (same with the mmwx shared render, work/mu/mu.sh, 0 ms and 5 ms): ~6 Mbps, uploads
+    reset, Core counters 2–4× the payload (ARQ resends counted); after `rmi` no data flows any more but the Core's
+    outbound TCP to the target stays established (until idle timeout). Pre-existing Core / client behaviour, not
+    caused by the native render — prod has no Mieru UDP node (168 = TCP). Follow-up candidate (own Core code).
+- Panel lab (work → lab/, real agents: X = this branch, O = fork.176): caps X anytls/snell/mieru 1/1/1, O 1/0/0;
+  O refuses Snell / Mieru switch-on with 「该服务器的节点程序版本过低，升级后才能使用 Snell / Mieru，暂不能启用」;
+  6 nodes made through the panel (user Snell / Mieru, admin Snell v5 HTTP, Snell v4 TLS, Snell v5, Mieru UDP): mihomo
+  configured only from the panel's Clash entries — TCP + UDP DNS 6/6, 4 MiB down + 1 MiB up, panel counters ≈ bytes
+  (except Mieru UDP, above); Surge lines valid for none / http obfs, TLS obfs → note (as shared).
+- Prod-DB copy (isolated netns): fork.176 vs this branch — every server's agent payload / share desired / node links
+  52/52 identical; with landing_snell / landing_mieru = 1 on every agent (after an OTA) still 52/52; subscriptions
+  8 × 13 clients 104/104 identical (real paneld-176 vs new binary). Node 168 moved to a native Dmit T1 (+ keep row):
+  links identical, a clot88 subscription with 168 identical in 13/13 clients, native payload carries its username /
+  password / port 30000 unchanged.
+- Screenshots: http://104.145.236.29:8791/native-snell-mieru/ (24 PNG, desktop / 390 px / dark).
 
 ## mmwx lessons (Snell / Mieru on the shared Core) — what was reused, what not
 - Reused as is: the Core inbound render (users psk / version / email + obfsMode / obfsHost; Mieru users username /
