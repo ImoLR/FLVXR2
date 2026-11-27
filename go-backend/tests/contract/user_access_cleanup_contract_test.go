@@ -110,7 +110,7 @@ func runUserAccessCleanup(t *testing.T, dialect string) {
 		return f
 	}
 	f90a := fwd(90, tA.ID, 48, 24189)
-	fwd(90, tC.ID, 49, 30001)
+	f90n := fwd(90, tC.ID, 49, 30001)
 	fwd(91, tD.ID, 48, 25000)
 	quota := func(uid, node int64, used int64) {
 		seed(&model.UserServerQuota{UserID: uid, ServerKind: "node", ServerRefID: node, UsedIn: used, UsedOut: used, PeriodKey: 20261125, CreatedTime: now, UpdatedTime: now})
@@ -360,4 +360,27 @@ func runUserAccessCleanup(t *testing.T, dialect string) {
 	if c, _ := call(tok[90], "node/user-access/orphans", map[string]interface{}{}); c != 403 {
 		t.Fatalf("user reached the admin endpoint: %d", c)
 	}
+
+	// 8. FLVX_ACCESS_CLEANUP=dry: nothing goes by itself (mutations, full
+	// pass); the dry run lists it and apply does it.
+	t.Setenv("FLVX_ACCESS_CLEANUP", "dry")
+	if s := states(names(90, 49)); s != "active/" {
+		t.Fatalf("Nathan name before dry mode: %s", s)
+	}
+	mustOK(tok[90], "forward/delete", map[string]interface{}{"id": f90n.ID})
+	mustOK(admin, "tunnel/user/remove", map[string]interface{}{"id": utC.ID})
+	reconcile()
+	if s := states(names(90, 49)); s != "active/" || !quotaRow(90, 49) {
+		t.Fatalf("dry mode retired / pruned by itself: names %s row %v", s, quotaRow(90, 49))
+	}
+	raw = mustOK(admin, "node/user-access/orphans", map[string]interface{}{})
+	if !strings.Contains(raw, `"auto":false`) || !strings.Contains(raw, `"domain":"`+wingsNathan+`"`) || !strings.Contains(raw, `"serverRefId":49`) {
+		t.Fatalf("dry-mode dry run: %s", raw)
+	}
+	mustOK(admin, "node/user-access/orphans", map[string]interface{}{"apply": true})
+	if s := states(names(90, 49)); s != "retired/no_access" || quotaRow(90, 49) {
+		t.Fatalf("dry-mode apply: names %s row %v", s, quotaRow(90, 49))
+	}
+	reconcile()
+	waitFor("Nathan record deleted", func() bool { return len(fake.userCNAMEs()) == 0 })
 }

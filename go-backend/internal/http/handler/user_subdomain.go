@@ -216,7 +216,7 @@ func (h *Handler) UserSubdomainKicker(next http.Handler) http.Handler {
 // their node (DB only) and delete per-server rows nothing backs any more.
 // Skipped while a reconcile pass runs (it does the same right after).
 func (h *Handler) userAccessCleanup() {
-	if h == nil || h.repo == nil {
+	if h == nil || h.repo == nil || !accessCleanupAuto() {
 		return
 	}
 	h.userSubRetireGone()
@@ -234,7 +234,7 @@ func (h *Handler) userSubRetireGone() int {
 	if work, err := h.repo.AnyUserSubdomainWork(); err != nil || !work {
 		return 0
 	}
-	facts, _, _, err := h.userSubFacts(m.now(), true)
+	facts, _, _, err := h.userSubFactsWith(m.now(), true, true)
 	if err != nil {
 		log.Printf("[user-subdomain] access check: %v", err)
 		return 0
@@ -330,7 +330,7 @@ func (h *Handler) runUserSubdomainLoop(ctx context.Context) {
 		passCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 		h.userSubReconcile(passCtx, full, false)
 		cancel()
-		if full {
+		if full && accessCleanupAuto() {
 			h.userServerQuotaPrune() // plan 321: anything a mutation path missed
 		}
 		m.mu.Lock()
@@ -566,7 +566,15 @@ func (h *Handler) userSubReconcile(ctx context.Context, full, force bool) {
 
 // userSubFacts loads what the planner reads. withNames=false loads only
 // the names (and users) needed to know who still needs one (reservation).
+// Plan 321: the access facts (names of users no longer on a node retire)
+// come along on full loads unless FLVX_ACCESS_CLEANUP=dry.
 func (h *Handler) userSubFacts(now time.Time, all bool) (*usersub.Facts, map[int64]repo.UserSubdomainNode, []int64, error) {
+	return h.userSubFactsWith(now, all, all && accessCleanupAuto())
+}
+
+// userSubFactsWith: withAccess loads the plan-321 access facts (the
+// orphan dry run / apply load them even in dry mode).
+func (h *Handler) userSubFactsWith(now time.Time, all, withAccess bool) (*usersub.Facts, map[int64]repo.UserSubdomainNode, []int64, error) {
 	nodes, err := h.repo.ListUserSubdomainNodes()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("nodes: %w", err)
@@ -597,7 +605,7 @@ func (h *Handler) userSubFacts(now time.Time, all bool) (*usersub.Facts, map[int
 	if facts.Names, err = h.repo.ListUserSubdomainsForPlan(); err != nil {
 		return nil, nil, nil, fmt.Errorf("names: %w", err)
 	}
-	if all {
+	if all && withAccess {
 		// Plan 321: who still needs each node a name lives on (the
 		// reservation pass only creates names, it needs no access facts).
 		want := map[int64]bool{}

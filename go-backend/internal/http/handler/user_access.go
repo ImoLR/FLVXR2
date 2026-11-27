@@ -3,7 +3,9 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
+	"strings"
 
 	"go-backend/internal/http/response"
 	"go-backend/internal/store/model"
@@ -15,6 +17,14 @@ import (
 // 专属域名 on that node behind. The cleanup itself runs after every mutating
 // POST (UserSubdomainKicker → userAccessCleanup) and on the 10-minute pass;
 // this file holds the admin views around it.
+
+// accessCleanupAuto: the automatic cleanup (after every mutating POST and on
+// the 10-minute pass) is on unless FLVX_ACCESS_CLEANUP=dry — then nothing
+// retires or goes by itself; the admin dry run lists and its apply does it
+// (release rehearsals on a prod-DB copy, or a cautious first deploy).
+func accessCleanupAuto() bool {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("FLVX_ACCESS_CLEANUP"))) != "dry"
+}
 
 // userServerGrants: per node row of the user ("node:<id>") the grants whose
 // tunnel uses that node (entry, relay or exit). Admins: none (they use all).
@@ -54,7 +64,7 @@ func (h *Handler) userAccessGoneNames() ([]model.UserSubdomain, error) {
 	if err != nil || !work {
 		return nil, err
 	}
-	facts, _, _, err := h.userSubFacts(h.userSubState().now(), true)
+	facts, _, _, err := h.userSubFactsWith(h.userSubState().now(), true, true)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +131,7 @@ func (h *Handler) userAccessOrphans(w http.ResponseWriter, r *http.Request) {
 		views = append(views, userAccessNameView{ID: n.ID, UserID: n.UserID, UserName: userNames[n.UserID], NodeID: n.NodeID, NodeName: nodeNames[n.NodeID],
 			Domain: n.Domain, Target: n.Target, State: n.State, RecordID: n.RecordID})
 	}
-	out := map[string]interface{}{"apply": req.Apply, "names": views, "serverRows": rows}
+	out := map[string]interface{}{"apply": req.Apply, "names": views, "serverRows": rows, "auto": accessCleanupAuto()}
 	if req.Apply {
 		retired := h.userSubRetireGone()
 		pruned := h.userServerQuotaPrune()
