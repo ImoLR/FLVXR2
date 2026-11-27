@@ -10,8 +10,9 @@ export type LandingProtocol =
   | "snell"
   | "mieru"
   | "vless_enc";
-// Plan 121: AnyTLS / Snell / Mieru exist only on 妙妙屋共享 servers that
-// advertise them (contract landing-protocols-v1 `protocol_caps`).
+// Plan 121: AnyTLS / Snell / Mieru on 妙妙屋共享 servers that advertise them
+// (contract landing-protocols-v1 `protocol_caps`); native landings run them
+// too (AnyTLS plan 274, Snell / Mieru plan 317) when their agent does.
 export const LANDING_EXTRA_PROTOCOLS = ["anytls", "snell", "mieru"] as const;
 export type LandingExtraProtocol = (typeof LANDING_EXTRA_PROTOCOLS)[number];
 export const isLandingExtraProtocol = (
@@ -90,6 +91,35 @@ export const nativeAnyTLSUnavailableReason = (server: {
   server.source !== "shared" && server.anytlsAvailable === false
     ? server.anytlsReason || "该服务器暂不支持 AnyTLS"
     : "";
+/**
+ * Plan 317: why an AnyTLS / Snell / Mieru node cannot be created on a native
+ * server now ("" = usable): its agent must run the protocol.
+ */
+export const nativeExtraUnavailableReason = (
+  server: {
+    source: string;
+    anytlsAvailable?: boolean;
+    anytlsReason?: string;
+    snellAvailable?: boolean;
+    snellReason?: string;
+    mieruAvailable?: boolean;
+    mieruReason?: string;
+  },
+  protocol: string,
+) => {
+  if (server.source === "shared") return "";
+  if (protocol === "anytls") return nativeAnyTLSUnavailableReason(server);
+  if (protocol === "snell")
+    return server.snellAvailable === false
+      ? server.snellReason || "该服务器暂不支持 Snell"
+      : "";
+  if (protocol === "mieru")
+    return server.mieruAvailable === false
+      ? server.mieruReason || "该服务器暂不支持 Mieru"
+      : "";
+
+  return "";
+};
 /** Protocols a node can be created with right now on this server. */
 export const landingCreatableProtocols = (server: {
   source: string;
@@ -99,12 +129,17 @@ export const landingCreatableProtocols = (server: {
   vlessEncReason?: string;
   anytlsAvailable?: boolean;
   anytlsReason?: string;
+  snellAvailable?: boolean;
+  snellReason?: string;
+  mieruAvailable?: boolean;
+  mieruReason?: string;
 }) =>
   (server.protocols || []).filter((protocol) =>
     protocol === "vless_enc"
       ? !vlessEncUnavailableReason(server)
-      : protocol === "anytls" && server.source !== "shared"
-        ? !nativeAnyTLSUnavailableReason(server)
+      : isLandingExtraProtocol(protocol) && server.source !== "shared"
+        ? // Plan 274 / 317: native AnyTLS / Snell / Mieru need the agent.
+          !nativeExtraUnavailableReason(server, protocol)
         : !isLandingExtraProtocol(protocol) ||
           (server.source === "shared" &&
             Boolean(sharedProtocolCap(server, protocol))),
@@ -165,6 +200,11 @@ export interface LandingServer {
   vlessEncReason?: string;
   anytlsAvailable?: boolean;
   anytlsReason?: string;
+  /** Plan 317: Snell / Mieru usable now on a native server (its agent). */
+  snellAvailable?: boolean;
+  snellReason?: string;
+  mieruAvailable?: boolean;
+  mieruReason?: string;
   /** Plan 224: entry-filter features per protocol a new node would have. */
   protocolFilterFeatures?: Record<string, string[]>;
   sharedCaps?: SharedLandingCaps;

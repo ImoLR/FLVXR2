@@ -23,10 +23,11 @@ func TestNativeAnyTLSLanding(t *testing.T) {
 			if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), AnyTLSAgentReason) {
 				t.Fatalf("old agent: AnyTLS switch enabled: %v", err)
 			}
-			// Snell / Mieru stay shared-only.
+			// Plan 317: Snell / Mieru run natively too, gated by their own
+			// agent capability (repository_landing_native_snell_mieru_test.go).
 			y := *reloadServer(t, r, s.ID)
 			y.Protocols = `["ss2022","snell"]`
-			if err := r.SaveLandingServer(&y, []int64{701}); err == nil || !strings.Contains(err.Error(), "Snell / Mieru 目前只支持妙妙屋共享服务器") {
+			if err := r.SaveLandingServer(&y, []int64{701}); err == nil || !strings.Contains(err.Error(), SnellAgentReason) {
 				t.Fatalf("native snell: %v", err)
 			}
 			if err := r.db.Model(&model.Node{}).Where("id = 601").Update("landing_anytls", LandingAnyTLSVersion).Error; err != nil {

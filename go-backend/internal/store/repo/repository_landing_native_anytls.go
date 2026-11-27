@@ -1,7 +1,7 @@
 package repo
 
-// Plan 274: AnyTLS also runs on native FLVX landings (Snell / Mieru stay on
-// mmwx-shared servers). The node is made like a shared AnyTLS node (plan 121):
+// Plan 274: AnyTLS also runs on native FLVX landings (plan 317: Snell and
+// Mieru too, repository_landing_native_snell_mieru.go). The node is made like a shared AnyTLS node (plan 121):
 // a random password, a self-signed ECDSA certificate per node (SAN = the
 // server's AnyTLS SNI, else its public host), the SHA-256 of the certificate
 // pinned by clients that can pin (Clash fingerprint, Surge server-cert-
@@ -35,14 +35,14 @@ func NativeAnyTLSSupported(agentVersion int) bool { return agentVersion >= Landi
 // isAnyTLS reports the protocol.
 func isAnyTLS(p string) bool { return p == landingcustom.ProtocolAnyTLS }
 
-// sharedOnlyProtocol: protocols only an mmwx share can run (plan 121).
-func sharedOnlyProtocol(p string) bool { return landingcustom.IsExtraProtocol(p) && !isAnyTLS(p) }
-
 // LandingAgentProtocols are the protocol capabilities of a native agent that
-// decide which of its nodes may be sent (landing_vless_enc / landing_anytls).
+// decide which of its nodes may be sent (landing_vless_enc / landing_anytls /
+// plan 317 landing_snell / landing_mieru).
 type LandingAgentProtocols struct {
 	VLESSEnc int
 	AnyTLS   int
+	Snell    int
+	Mieru    int
 }
 
 // NodeLandingProtocols reads them from the node row.
@@ -50,11 +50,15 @@ func NodeLandingProtocols(n *model.Node) LandingAgentProtocols {
 	if n == nil {
 		return LandingAgentProtocols{}
 	}
-	return LandingAgentProtocols{VLESSEnc: n.LandingVLESSEnc, AnyTLS: n.LandingAnyTLS}
+	return LandingAgentProtocols{VLESSEnc: n.LandingVLESSEnc, AnyTLS: n.LandingAnyTLS, Snell: n.LandingSnell, Mieru: n.LandingMieru}
 }
 
+// landingAgentProtocolColumns: the node columns NodeLandingProtocols reads
+// (for Select lists).
+var landingAgentProtocolColumns = []string{"landing_vless_enc", "landing_anytls", "landing_snell", "landing_mieru"}
+
 // allLandingProtocols is "every protocol applied" (views, not the agent push).
-var allLandingProtocols = LandingAgentProtocols{VLESSEnc: LandingVLESSEncVersion, AnyTLS: LandingAnyTLSVersion}
+var allLandingProtocols = LandingAgentProtocols{VLESSEnc: LandingVLESSEncVersion, AnyTLS: LandingAnyTLSVersion, Snell: LandingSnellVersion, Mieru: LandingMieruVersion}
 
 // nativeSends reports whether a native agent with caps runs protocol p.
 func (c LandingAgentProtocols) nativeSends(p string) bool {
@@ -63,8 +67,12 @@ func (c LandingAgentProtocols) nativeSends(p string) bool {
 		return NativeVLESSEncSupported(c.VLESSEnc)
 	case isAnyTLS(p):
 		return NativeAnyTLSSupported(c.AnyTLS)
-	case sharedOnlyProtocol(p):
-		return false
+	case isSnell(p):
+		return NativeSnellSupported(c.Snell)
+	case isMieru(p):
+		return NativeMieruSupported(c.Mieru)
+	case landingcustom.IsExtraProtocol(p):
+		return false // a future extra protocol: never to an agent that cannot know it
 	}
 	return true
 }
@@ -77,18 +85,22 @@ func nativeProtocolAgentReason(p string, caps LandingAgentProtocols) string {
 		return VLESSEncAgentReason
 	case isAnyTLS(p) && !NativeAnyTLSSupported(caps.AnyTLS):
 		return AnyTLSAgentReason
+	case isSnell(p) && !NativeSnellSupported(caps.Snell):
+		return SnellAgentReason
+	case isMieru(p) && !NativeMieruSupported(caps.Mieru):
+		return MieruAgentReason
 	}
 	return ""
 }
 
-// checkNativeAnyTLSCreate: a new AnyTLS node on a native server needs an agent
-// that runs it.
-func checkNativeAnyTLSCreate(s *model.LandingServer, protocol string, caps LandingAgentProtocols) error {
-	if s.Source != "native" || !isAnyTLS(protocol) {
+// checkNativeExtraCreate: a new AnyTLS / Snell / Mieru node on a native
+// server needs an agent that runs it (VLESS Encryption: checkVLESSEncCreate).
+func checkNativeExtraCreate(s *model.LandingServer, protocol string, caps LandingAgentProtocols) error {
+	if s.Source != "native" || !landingcustom.IsExtraProtocol(protocol) {
 		return nil
 	}
-	if !NativeAnyTLSSupported(caps.AnyTLS) {
-		return errors.New(AnyTLSAgentReason)
+	if reason := nativeProtocolAgentReason(protocol, caps); reason != "" {
+		return errors.New(reason)
 	}
 	return nil
 }
@@ -101,7 +113,8 @@ func NativeAnyTLSDesired(n model.LandingNode) map[string]interface{} {
 
 // landingProtocolUDP: whether a node's client configs announce UDP. Shared
 // servers follow the share's capability (plan 121); native nodes always carry
-// UDP (SS2022 natively, VLESS / AnyTLS over the TCP stream).
+// UDP (SS2022 / Mieru natively, VLESS / AnyTLS / Snell over the TCP stream —
+// the pinned Core has the Snell per-packet UDP target fix).
 func landingProtocolUDP(s *model.LandingServer, n model.LandingNode) bool {
 	if s != nil && s.Source == "shared" && landingcustom.IsCapProtocol(n.Protocol) {
 		cp, _ := SharedProtocolCap(s, n.Protocol)

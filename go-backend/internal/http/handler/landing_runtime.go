@@ -232,17 +232,22 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	sentLimits := map[int64]repo.LandingSentLimits{}
 	inboundIDs := []int64{}
 	totalSig := []string{}
-	// Plan 253 / 274: VLESS Encryption / AnyTLS nodes only to agents that run
-	// them.
+	// Plan 253 / 274 / 317: VLESS Encryption / AnyTLS / Snell / Mieru nodes
+	// only to agents that run them.
 	notSent := repo.NativeLandingNotSent(repo.NodeLandingProtocols(node))
-	anytlsSent := 0
+	anytlsSent, snellSent, mieruSent := 0, 0, 0
 	for i := range nodes {
 		n := &nodes[i]
 		if n.LandingServerID != s.ID || notSent(n.Protocol) {
 			continue
 		}
-		if n.Protocol == landingcustom.ProtocolAnyTLS {
+		switch n.Protocol {
+		case landingcustom.ProtocolAnyTLS:
 			anytlsSent++
+		case landingcustom.ProtocolSnell:
+			snellSent++
+		case landingcustom.ProtocolMieru:
+			mieruSent++
 		}
 		sent := repo.LandingSendLimits(n.MaxConnections, n.MaxTotalConnections, connSupported && repo.LandingNodeConnMode(n, s) == repo.LandingConnInbound, totalSupported)
 		sentLimits[n.ID] = sent
@@ -255,11 +260,10 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	}
 	globalInbound := s.MaxConnections > 0 && repo.LandingServerTotalConnMode(s, connSupported) == repo.LandingConnInbound
 	connSig := repo.NativeLandingConnSig(inboundIDs, globalInbound)
-	// Plan 274: AnyTLS nodes that an agent upgrade starts sending advance the
-	// revision (servers without AnyTLS nodes keep their signature).
-	if anytlsSent > 0 {
-		connSig += ";at=" + strconv.Itoa(anytlsSent)
-	}
+	// Plan 274 / 317: AnyTLS / Snell / Mieru nodes that an agent upgrade
+	// starts sending advance the revision (servers without such nodes keep
+	// their signature byte for byte).
+	connSig += repo.NativeExtraSignature(anytlsSent, snellSent, mieruSent)
 	if len(totalSig) > 0 {
 		sort.Strings(totalSig)
 		sum := sha256.Sum256([]byte(strings.Join(totalSig, ",")))
@@ -365,8 +369,8 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 	for _, n := range nodes {
 		// The native agent renders SS2022 / VLESS (plan 253: and VLESS
 		// Encryption from landing_vless_enc 1, plan 274: AnyTLS from
-		// landing_anytls 1); Snell / Mieru are refused on native servers.
-		// Never hand the agent one it cannot apply.
+		// landing_anytls 1, plan 317: Snell / Mieru from landing_snell /
+		// landing_mieru 1). Never hand the agent one it cannot apply.
 		if n.LandingServerID != s.ID || notSent(n.Protocol) {
 			continue
 		}
@@ -403,6 +407,12 @@ func (h *Handler) syncNativeLandingServerLocked(serverID int64) (*landingSyncSna
 		}
 		if n.Protocol == landingcustom.ProtocolAnyTLS {
 			desired["anytls"] = repo.NativeAnyTLSDesired(n)
+		}
+		if n.Protocol == landingcustom.ProtocolSnell {
+			desired["snell"] = repo.NativeSnellDesired(n)
+		}
+		if n.Protocol == landingcustom.ProtocolMieru {
+			desired["mieru"] = repo.NativeMieruDesired(n)
 		}
 		desiredNodes = append(desiredNodes, desired)
 	}

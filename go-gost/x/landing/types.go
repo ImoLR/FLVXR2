@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -92,6 +93,10 @@ type Node struct {
 	AnyTLS *AnyTLS `json:"anytls,omitempty"`
 	// VLESSEnc (plan 253, landing_vless_enc 1): a public VLESS Encryption node.
 	VLESSEnc *VLESSEnc `json:"vless_enc,omitempty"`
+	// Snell / Mieru (plan 317, landing_snell 1 / landing_mieru 1): public
+	// nodes rendered like mmwx Custom's shared ones.
+	Snell *Snell `json:"snell,omitempty"`
+	Mieru *Mieru `json:"mieru,omitempty"`
 	// Listen is empty (all addresses) or the loopback address of a chain node.
 	Listen string `json:"listen,omitempty"`
 	// Chain is the private upstream of a chain node (plan 108): everything the
@@ -140,6 +145,27 @@ const ProtocolAnyTLS = "anytls"
 // on all addresses). Older agents reject them together with the whole desired
 // state, so the panel sends them only to agents reporting ≥ 1.
 const AnyTLSVersion = 1
+
+// Plan 317: Snell and Mieru public landing nodes, the same Core inbounds as
+// mmwx Custom renders for shared nodes (contract landing-protocols-v1 §6).
+const (
+	ProtocolSnell = "snell"
+	ProtocolMieru = "mieru"
+)
+
+// SnellVersion / MieruVersion are reported as landing_snell / landing_mieru:
+// this agent applies public Snell / Mieru nodes. Older agents reject them
+// together with the whole desired state ("unsupported landing protocol"), so
+// the panel sends them only to agents reporting ≥ 1.
+const (
+	SnellVersion = 1
+	MieruVersion = 1
+)
+
+// udpProtocol: the node's inbound also serves UDP on its port — SS2022, and
+// Mieru (one inbound on TCP and UDP; the client picks the underlay). VLESS,
+// AnyTLS and Snell carry UDP inside the TCP stream.
+func udpProtocol(p string) bool { return p == "ss2022" || p == ProtocolMieru }
 
 // ChainListen is the only listen address a chain node may use: the tunnel's
 // exit relay dials it locally, nothing outside the server can reach it.
@@ -204,6 +230,75 @@ func (a *AnyTLS) validate() error {
 	}
 	if _, err := tls.X509KeyPair([]byte(a.CertificatePEM), []byte(a.KeyPEM)); err != nil {
 		return fmt.Errorf("invalid AnyTLS certificate or key")
+	}
+	return nil
+}
+
+// Snell (plan 317): one PSK user; Version 4 or 5 (v6 is not offered: mihomo
+// cannot use it); Obfs "" / "none" = plain, "http" / "tls" with ObfsHost.
+type Snell struct {
+	PSK      string `json:"psk"`
+	Version  int    `json:"version"`
+	Obfs     string `json:"obfs,omitempty"`
+	ObfsHost string `json:"obfs_host,omitempty"`
+}
+
+// Mieru (plan 317): one username / password user. The server has no transport
+// setting: the inbound listens on TCP and UDP and the client chooses.
+type Mieru struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// validMieruUsername: 4–32 characters A–Z, a–z, 0–9 (the panel generates 10
+// lowercase; same rule as landing-protocols-v1, so a node moved over from a
+// share keeps its credentials).
+func validMieruUsername(u string) bool {
+	if len(u) < 4 || len(u) > 32 {
+		return false
+	}
+	for _, r := range u {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// validObfsHost: a DNS hostname, not an IP literal.
+func validObfsHost(h string) bool {
+	if _, err := netip.ParseAddr(h); err == nil {
+		return false
+	}
+	h = strings.ToLower(h)
+	return len(h) <= 253 && hostnameRe.MatchString(h) && strings.Contains(strings.TrimSuffix(h, "."), ".")
+}
+
+func (s *Snell) validate() error {
+	if s == nil || !validAnyTLSPassword(s.PSK) {
+		return fmt.Errorf("invalid Snell credentials")
+	}
+	if s.Version != 4 && s.Version != 5 {
+		return fmt.Errorf("invalid Snell version")
+	}
+	switch s.Obfs {
+	case "", "none":
+		if s.ObfsHost != "" {
+			return fmt.Errorf("invalid Snell obfs")
+		}
+	case "http", "tls":
+		if !validObfsHost(s.ObfsHost) {
+			return fmt.Errorf("invalid Snell obfs host")
+		}
+	default:
+		return fmt.Errorf("invalid Snell obfs")
+	}
+	return nil
+}
+
+func (m *Mieru) validate() error {
+	if m == nil || !validMieruUsername(m.Username) || !validAnyTLSPassword(m.Password) {
+		return fmt.Errorf("invalid Mieru credentials")
 	}
 	return nil
 }
@@ -378,8 +473,8 @@ func (n Node) validateChain() error {
 	return nil
 }
 
-// publicPorts lists the inbound ports reachable from outside: SS2022 serves TCP
-// and UDP, VLESS Reality TCP; loopback chain nodes are not public.
+// publicPorts lists the inbound ports reachable from outside: SS2022 and Mieru
+// serve TCP and UDP, the others TCP; loopback chain nodes are not public.
 func (d Desired) publicPorts() *PortsInUse {
 	p := &PortsInUse{}
 	if !d.Enabled {
@@ -390,7 +485,7 @@ func (d Desired) publicPorts() *PortsInUse {
 			continue
 		}
 		p.TCP = append(p.TCP, n.Port)
-		if n.Protocol == "ss2022" {
+		if udpProtocol(n.Protocol) {
 			p.UDP = append(p.UDP, n.Port)
 		}
 	}
@@ -500,6 +595,41 @@ func (n Node) inbound() (map[string]any, error) {
 			stream["sockopt"] = deferAcceptSockopt()
 		}
 		inbound["streamSettings"] = stream
+	case ProtocolSnell:
+		// Plan 317: mmwx Custom's shared Snell inbound (contract §6), TCP
+		// only (UDP rides the stream; the pinned Core has the per-packet UDP
+		// target fix, feature snell.udp_per_packet_target).
+		if n.Listen != "" {
+			return nil, fmt.Errorf("Snell node must be public")
+		}
+		s := n.Snell
+		if err := s.validate(); err != nil {
+			return nil, err
+		}
+		user := map[string]any{"psk": s.PSK, "version": s.Version, "email": n.InboundTag}
+		if s.Obfs == "http" || s.Obfs == "tls" {
+			user["obfsMode"], user["obfsHost"] = s.Obfs, s.ObfsHost
+		}
+		inbound["protocol"] = ProtocolSnell
+		inbound["settings"] = map[string]any{"users": []any{user}}
+		// Client-first protocol: deferring accept keeps a silent warm-pool
+		// conn in the kernel (plan 274, as for public AnyTLS).
+		inbound["streamSettings"] = map[string]any{"network": "tcp", "sockopt": deferAcceptSockopt()}
+	case ProtocolMieru:
+		// Plan 317: mmwx Custom's shared Mieru inbound (contract §6): one
+		// inbound on TCP and UDP of the port, no transport key. The deferred
+		// accept is a TCP-only sockopt (network "tcp"); the UDP socket of the
+		// same inbound is untouched.
+		if n.Listen != "" {
+			return nil, fmt.Errorf("Mieru node must be public")
+		}
+		m := n.Mieru
+		if err := m.validate(); err != nil {
+			return nil, err
+		}
+		inbound["protocol"] = ProtocolMieru
+		inbound["settings"] = map[string]any{"users": []any{map[string]any{"username": m.Username, "password": m.Password, "email": n.InboundTag}}}
+		inbound["streamSettings"] = map[string]any{"network": "tcp", "sockopt": deferAcceptSockopt()}
 	default:
 		return nil, fmt.Errorf("unsupported landing protocol")
 	}

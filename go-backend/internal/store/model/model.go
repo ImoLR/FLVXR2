@@ -147,6 +147,8 @@ type Node struct {
 	LandingReality               int            `gorm:"column:landing_reality;not null;default:0"`             // agent: RealityProbe + Reality dest IP pins (plan 227)
 	LandingVLESSEnc              int            `gorm:"column:landing_vless_enc;not null;default:0"`           // agent: VLESS Encryption inbound + encrypted VLESS outbounds (plan 253)
 	LandingAnyTLS                int            `gorm:"column:landing_anytls;not null;default:0"`              // agent: public AnyTLS landing inbound (plan 274)
+	LandingSnell                 int            `gorm:"column:landing_snell;not null;default:0"`               // agent: public Snell landing inbound (plan 317)
+	LandingMieru                 int            `gorm:"column:landing_mieru;not null;default:0"`               // agent: public Mieru landing inbound, TCP + UDP (plan 317)
 	UserRate                     int            `gorm:"column:user_rate;not null;default:0"`                   // agent: shared per-user limiter on forward services (plan 159)
 	LandingRate                  int            `gorm:"column:landing_rate;not null;default:0"`                // agent: per-user 速率 on its landing nodes, in the kernel (plan 161)
 	EntryRateTc                  int            `gorm:"column:entry_rate_tc;not null;default:0"`               // plan 168: 0 = agent without tc entry limits, 1 = tc, 2 = kernel cannot (old path)
