@@ -384,6 +384,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/node/create", h.nodeCreate)
 	mux.HandleFunc("/api/v1/node/update", h.nodeUpdate)
 	mux.HandleFunc("/api/v1/node/vendor/options", h.nodeVendorOptions) // plan 318
+	mux.HandleFunc("/api/v1/node/vendor/set", h.nodeVendorSet)         // plan 318 (backfill)
 	mux.HandleFunc("/api/v1/node/delete", h.nodeDelete)
 	mux.HandleFunc("/api/v1/node/install", h.nodeInstallDomestic)
 	mux.HandleFunc("/api/v1/node/install-domestic", h.nodeInstallDomestic)

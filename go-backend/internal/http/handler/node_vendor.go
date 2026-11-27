@@ -83,3 +83,41 @@ func (h *Handler) nodeVendorOptions(w http.ResponseWriter, r *http.Request) {
 	}
 	response.WriteJSON(w, response.OK(map[string]any{"on": vs.On, "vendors": opts}))
 }
+
+// nodeVendorSet (admin): only the node's 「VPS 厂商」 — the same validation
+// as the node dialog (required), no other node field is touched (the plan
+// 318 backfill of old nodes uses it: one node at a time, hot landing update).
+func (h *Handler) nodeVendorSet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.WriteJSON(w, response.ErrDefault("请求失败"))
+		return
+	}
+	var req map[string]interface{}
+	if err := decodeJSON(r.Body, &req); err != nil {
+		response.WriteJSON(w, response.ErrDefault("请求参数错误"))
+		return
+	}
+	id := asInt64(req["id"], 0)
+	node, err := h.repo.GetNodeByID(id)
+	if err != nil || node == nil {
+		response.WriteJSON(w, response.ErrDefault("节点不存在"))
+		return
+	}
+	pick, _, err := h.nodeVendorPickFromRequest(req, true)
+	if err != nil {
+		response.WriteJSON(w, response.ErrDefault(err.Error()))
+		return
+	}
+	serverID, changed, err := h.repo.SetNodeVendors(id, pick)
+	if err != nil {
+		response.WriteJSON(w, response.Err(-2, err.Error()))
+		return
+	}
+	if changed {
+		log.Printf("[landing-vendor] node=%d vendors=%q other=%q (landing server %d)", id, strings.Join(pick.Keys, ","), pick.Other, serverID)
+		if serverID > 0 {
+			h.scheduleLandingLayerApply([]int64{serverID})
+		}
+	}
+	response.WriteJSON(w, response.OK(map[string]any{"id": id, "vendors": pick.Keys, "vendorOther": pick.Other, "changed": changed, "landingServerId": serverID}))
+}

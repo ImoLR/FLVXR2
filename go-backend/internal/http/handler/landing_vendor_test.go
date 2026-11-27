@@ -298,6 +298,21 @@ func TestNodeCreateRequiresVendor(t *testing.T) {
 	if _, ok := got["volc"]; ok {
 		t.Fatal("a node with vendors listed as an issue")
 	}
+	// node/vendor/set (backfill): vendor fields only, required, re-syncs.
+	var remote model.Node
+	e.r.DB().Where("name = ?", "remote").First(&remote)
+	if code, msg, _ := adminPost(t, e.h.nodeVendorSet, map[string]any{"id": remote.ID}); code == 0 || !strings.Contains(msg, "VPS 厂商") {
+		t.Fatalf("set without vendor: %d %s", code, msg)
+	}
+	if code, msg, _ := adminPost(t, e.h.nodeVendorSet, map[string]any{"id": remote.ID, "vendors": []string{"aws"}}); code != 0 {
+		t.Fatalf("set aws: %d %s", code, msg)
+	}
+	if err := e.r.DB().First(&remote, remote.ID).Error; err != nil || remote.Vendors != "aws" || remote.Name != "remote" || remote.ServerIP != "10.9.0.4" {
+		t.Fatalf("after set %+v %v", remote, err)
+	}
+	if code, _, _ := adminPost(t, e.h.nodeVendorSet, map[string]any{"id": 99999, "vendors": []string{"aws"}}); code == 0 {
+		t.Fatal("unknown node accepted")
+	}
 	// node/list (admin) carries the pick.
 	items, _ := e.r.ListNodes(&repo.ListNodesOptions{})
 	for _, it := range items {

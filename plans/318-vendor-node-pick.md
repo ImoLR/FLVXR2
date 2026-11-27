@@ -43,6 +43,8 @@ screenshots → user approval → separate release task.
   keep (old API callers). Internal paths (federation remote nodes, backup
   import) create the node without a vendor → ⚠.
 - **APIs:** `node/vendor/options` (admin: vendor list for the dialog);
+  `node/vendor/set` (admin: vendor fields only — the backfill, one node at a
+  time, no other node field re-saved);
   `landing/egress/vendor/assign` and `server/save` vendor only for shares
   (native → message: edit the node).
 - **UI:** node dialog multi-select + 其他 box; node card / list ⚠ (no vendor =
@@ -56,13 +58,13 @@ screenshots → user approval → separate release task.
 ## Checklist
 
 - [x] Plan doc
-- [ ] landingegress: new seed list (17), drop SuggestVendor/aliases, CombineVendors + limits + tests
-- [ ] model + migration + repo (node vendors, mirror, refs, vendor-list save checks)
-- [ ] Compile from node vendors (native) / server vendor (shared) + tests
-- [ ] Handlers: node create/update/list/options, assign/server-save share-only, admin views, resync + tests
-- [ ] Contract tests: required on create, user view has no vendor fields (extend), node list strip
+- [x] landingegress: new seed list (17), drop SuggestVendor/aliases, CombineVendors + limits + tests
+- [x] model + migration + repo (node vendors, mirror, refs, vendor-list save checks)
+- [x] Compile from node vendors (native) / server vendor (shared) + tests
+- [x] Handlers: node create/update/list/options, assign/server-save share-only, admin views, resync + tests
+- [x] Contract tests: required on create, user view has no vendor fields (extend), node list strip
 - [ ] Frontend: node dialog, node card/list ⚠, landing ⚠, server 设置, 管理厂商, 内置 row
 - [ ] go vet + go test SQLite + PG, npm run build
-- [ ] Prod-DB copy: migrate + backfill + render before/after diff, 158 byte-identical, rollback (fork.176 on migrated copy)
+- [x] Prod-DB copy: migrate + backfill + render before/after diff, 158 byte-identical, rollback (fork.176 on migrated copy)
 - [ ] Screenshots gallery (desktop + 390 px, light + dark)
 - [ ] Push branch, CI Build Check green, ledger row (等用户看截图), memory, summary
