@@ -110,9 +110,12 @@ func (r *Repository) UserSubdomainAccess(nodeIDs []int64) (map[int64]map[int64]b
 func (r *Repository) nativeLandingUsers(nodeIDs []int64) (map[int64]map[int64]bool, error) {
 	out := map[int64]map[int64]bool{}
 	var pairs []userNodePair
+	// Same rows as UserSubdomainUsage reads (any source, pending deletes too),
+	// so every name the planner would create is also "still needed" — a name
+	// can never be created and retired in a loop.
 	if err := r.db.Table("landing_node AS ln").Distinct("ln.user_id AS user_id", "s.node_id AS node_id").
 		Joins("JOIN landing_server AS s ON s.id = ln.landing_server_id").
-		Where("s.source = ? AND s.node_id IN ?", "native", nodeIDs).Scan(&pairs).Error; err != nil {
+		Where("s.node_id IN ?", nodeIDs).Scan(&pairs).Error; err != nil {
 		return nil, err
 	}
 	for _, p := range pairs {
