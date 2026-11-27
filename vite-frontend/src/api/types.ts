@@ -9,6 +9,9 @@ export interface LeiKwanNodeDetection {
 }
 
 export interface NodeApiItem extends LeiKwanNodeDetection {
+  /** Plan 318 (admin): VPS 厂商 keys (pick order) + 「其他（列表里没有）」 name. */
+  vendors?: string[];
+  vendorOther?: string;
   landingSupported?: boolean;
   landingServerId?: number;
   landingChainOnly?: boolean;
@@ -619,6 +622,9 @@ export interface UserMutationPayload {
 }
 
 export interface NodeMutationPayload {
+  /** Plan 318: required VPS 厂商 (keys) and/or the 「其他」 name. */
+  vendors?: string[];
+  vendorOther?: string;
   defaultUserQuotaBytes?: number;
   lineMachine?: boolean;
   region?: string;

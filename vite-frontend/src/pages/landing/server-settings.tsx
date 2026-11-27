@@ -26,6 +26,7 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 import { Switch } from "@/shadcn-bridge/heroui/switch";
 import { REGION_CODES, compareRegions, regionLabel } from "@/utils/region";
 import { ExtraProtocolSettings } from "@/pages/landing/extra-protocols";
+import { VendorFromNode } from "@/pages/landing/vendor-block";
 import { RealityServerSection } from "@/pages/landing/reality-domains";
 import {
   AttentionIcon,
@@ -580,8 +581,19 @@ export function ServerSettings({
                 )),
               ]}
             </Select>
-            {/* Plan 316: 屏蔽本机厂商官网 — this server's VPS vendor. */}
-            {server.vendorOptions && (
+            {/* Plan 316: 屏蔽本机厂商官网 — this server's VPS vendor. Plan 318:
+                a native server follows its node (read-only here); shares pick. */}
+            {server.vendorOptions && server.vendorFromNode && (
+              <VendorFromNode
+                attention={
+                  has("vendor-other")
+                    ? mark("vendor-other", "error")
+                    : mark("vendor-unset")
+                }
+                server={server}
+              />
+            )}
+            {server.vendorOptions && !server.vendorFromNode && (
               <div data-vendor-select className="space-y-1">
                 <Select
                   description="内置规则「屏蔽本机厂商官网」只屏蔽这家厂商自己的官网、客户中心和面板；未设置 = 不屏蔽"
@@ -608,24 +620,6 @@ export function ServerSettings({
                   <p className="text-xs text-warning">
                     {mark("vendor-unset")}
                     未设置厂商，屏蔽本机厂商官网在这台服务器上不生效
-                    {server.vendorSuggest && (
-                      <>
-                        {"；"}
-                        <button
-                          className="underline"
-                          type="button"
-                          onClick={() => set("vendor", server.vendorSuggest)}
-                        >
-                          按名称建议选「
-                          {
-                            server.vendorOptions.find(
-                              (v) => v.key === server.vendorSuggest,
-                            )?.name
-                          }
-                          」
-                        </button>
-                      </>
-                    )}
                   </p>
                 )}
                 {form.vendor && (

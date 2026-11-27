@@ -152,14 +152,20 @@ export const testLandingIntegration = (data: {
 export const syncLandingIntegration = () =>
   Network.post<LandingIntegration>("/landing/integration/sync", {});
 export interface LandingServer {
-  /** Plan 316 屏蔽本机厂商官网 (admin): vendor key ("" = 未设置), its name,
-   * a name-based suggestion, the global switch, SNI support, the choices. */
+  /** Plan 316 屏蔽本机厂商官网 (admin): vendor in force ("" = none), its name
+   * and names, the global switch, SNI support, the choices (shares pick one).
+   * Plan 318: no suggestion; a native server follows its node's vendors
+   * (vendorFromNode, read-only here: node name, keys, 「其他」 name). */
   vendor?: string;
   vendorName?: string;
-  vendorSuggest?: string;
+  vendorDomains?: string[];
   vendorOn?: boolean;
   vendorSni?: boolean;
   vendorOptions?: { key: string; name: string; domains: string[] }[];
+  vendorFromNode?: boolean;
+  vendorNodeName?: string;
+  vendorKeys?: string[];
+  vendorOther?: string;
   /** Plan 253: VLESS Encryption usable now (native agent / share caps). */
   vlessEncAvailable?: boolean;
   vlessEncReason?: string;
@@ -585,8 +591,11 @@ export const saveLandingServer = (
       ? { routeProfileId: server.routeProfileId, egressRestartConfirmed }
       : {}),
     ...(realityGuard !== undefined ? { realityGuard } : {}),
-    // Plan 316: absent = the panel keeps the stored vendor.
-    ...(server.vendor !== undefined ? { vendor: server.vendor } : {}),
+    // Plan 316: absent = the panel keeps the stored vendor. Plan 318: shares
+    // only (a native server's vendor is its node's).
+    ...(server.vendor !== undefined && !server.vendorFromNode
+      ? { vendor: server.vendor }
+      : {}),
     // Plan 227: absent = the panel keeps the stored mode.
     ...(server.realityMode !== undefined
       ? { realityMode: server.realityMode }

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 import {
   Building2,
   CircleCheck,
@@ -16,10 +17,12 @@ import {
   type EgressBuiltin,
   type EgressGlobal,
   type LandingVendor,
+  type VendorBlockServer,
   type VendorOffReason,
   assignLandingVendor,
   saveLandingVendors,
 } from "@/api/landing-egress";
+import { type LandingServer } from "@/api/landing";
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { Input } from "@/shadcn-bridge/heroui/input";
 import {
@@ -38,6 +41,9 @@ import { Switch } from "@/shadcn-bridge/heroui/switch";
 // whole account for that, 11-26). Per server, own vendor only. The 内置 row
 // (admin: switch + 管理厂商; node: read-only ✓/✗), its collapsed H5 line and
 // the vendor manager dialog.
+// Plan 318: no guessing. The vendor belongs to the node (node page, required,
+// multi): a native landing shows its node's vendors read-only here; mmwx
+// shares keep their own select.
 
 type Vendor = NonNullable<EgressBuiltin["vendor"]>;
 
@@ -57,9 +63,7 @@ function vendorState(
     return v.on
       ? {
           on: true,
-          label: v.unset
-            ? `生效中（${v.unset} 台落地服务器未设置厂商）`
-            : "生效中",
+          label: v.unset ? `生效中（${v.unset} 项未设置厂商）` : "生效中",
         }
       : { on: false, label: "未生效：全局已关闭" };
   if (v.on) return { on: true, label: "生效中" };
@@ -98,7 +102,8 @@ export function VendorBlockSection({
   const [managerOpen, setManagerOpen] = useState(false);
   const state = vendorState(vendor, Boolean(admin));
   const servers = vendor.servers || [];
-  const unset = servers.filter((s) => !s.vendor);
+  const sharesUnset = servers.filter((s) => s.source === "shared" && !s.vendor);
+  const nodeIssues = vendor.nodeIssues || [];
   const toggle = async (on: boolean) => {
     setSaving(true);
     const res = await saveLandingVendors({ on });
@@ -113,7 +118,7 @@ export function VendorBlockSection({
     onSaved?.(res.data);
   };
   const hint = admin
-    ? "每台落地只屏蔽托管它的那家 VPS 厂商自己的官网、客户中心、账单、工单和面板（含子域名），防止有人借这台机器的 IP 攻击厂商、导致整个账号被封。在每台落地服务器的「设置」里选厂商；不影响其它网站，也不影响落地本机。"
+    ? "每台落地只屏蔽托管它的那家 VPS 厂商自己的官网、客户中心、账单、工单和面板（含子域名），防止有人借这台机器的 IP 攻击厂商、导致整个账号被封。厂商在节点页「编辑节点 → VPS 厂商」里选（必填，可多选），妙妙屋共享在服务器「设置」里选；不影响其它网站，也不影响落地本机。"
     : "这台落地不能访问它所在 VPS 厂商自己的官网、客户中心和面板（含子域名），其它网站不受影响。";
 
   return (
@@ -182,37 +187,50 @@ export function VendorBlockSection({
           {admin && (
             <div className="space-y-1 pt-1">
               <div className="flex flex-wrap items-center gap-1">
-                {servers.map((s) => (
-                  <Pill
-                    key={s.id}
-                    title={
-                      s.vendor
-                        ? s.sni
-                          ? "按域名 + SNI / Host 匹配"
-                          : s.source === "shared"
-                            ? "妙妙屋共享：按访问的域名匹配"
-                            : "按访问的域名匹配（节点程序升级后也按 SNI / Host）"
-                        : s.suggest
-                          ? `未设置（建议：${nameOf(vendor, s.suggest)}）`
-                          : "未设置厂商"
-                    }
-                    tone={s.vendor ? "teal" : "amber"}
-                  >
-                    {!s.vendor && (
-                      <AttentionIcon
-                        className="mr-0.5 inline-block h-3 w-3 align-[-1px]"
-                        level="warn"
-                      />
-                    )}
-                    {s.name}：{s.vendor ? s.vendorName : "未设置"}
-                  </Pill>
-                ))}
+                {servers.map((s) => {
+                  const other = s.vendorOther?.trim();
+                  const level = other ? "error" : "warn";
+
+                  return (
+                    <Pill
+                      key={s.id}
+                      title={
+                        other
+                          ? `厂商「${other}」不在管理厂商列表`
+                          : s.vendor
+                            ? s.sni
+                              ? "按域名 + SNI / Host 匹配"
+                              : s.source === "shared"
+                                ? "妙妙屋共享：按访问的域名匹配"
+                                : "按访问的域名匹配（节点程序升级后也按 SNI / Host）"
+                            : "未设置厂商"
+                      }
+                      tone={other ? "red" : s.vendor ? "teal" : "amber"}
+                    >
+                      {(!s.vendor || other) && (
+                        <AttentionIcon
+                          className="mr-0.5 inline-block h-3 w-3 align-[-1px]"
+                          level={level}
+                        />
+                      )}
+                      {s.name}：{s.vendor ? s.vendorName : "未设置"}
+                      {other ? ` + 其他「${other}」` : ""}
+                    </Pill>
+                  );
+                })}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-default-500">
                 <span>
-                  {unset.length > 0
-                    ? `${unset.length} 台未设置厂商（不屏蔽，卡片上有 ⚠）`
-                    : "所有落地服务器都已设置厂商"}
+                  {nodeIssues.length + sharesUnset.length > 0
+                    ? [
+                        nodeIssues.length > 0 &&
+                          `${nodeIssues.length} 个节点未设置厂商或厂商不在列表`,
+                        sharesUnset.length > 0 &&
+                          `${sharesUnset.length} 台妙妙屋共享未设置厂商`,
+                      ]
+                        .filter(Boolean)
+                        .join("，") + "（卡片上有 ⚠）"
+                    : "所有节点和落地服务器都已设置厂商"}
                 </span>
                 {editable && (
                   <Button
@@ -252,8 +270,93 @@ export function VendorBlockSection({
   );
 }
 
-const nameOf = (v: Vendor, key: string) =>
-  (v.vendors || []).find((x) => x.key === key)?.name || key;
+/** Plan 318: the node page link that opens the node's edit dialog. */
+export const nodeEditHref = (nodeId?: number) =>
+  nodeId ? `/node?edit=${nodeId}` : "/node";
+
+function NodeEditLink({ nodeId, label }: { nodeId?: number; label?: string }) {
+  return (
+    <Link
+      className="text-xs text-primary underline underline-offset-2"
+      data-vendor-node-link={nodeId || ""}
+      to={nodeEditHref(nodeId)}
+    >
+      {label || "到节点页修改"}
+    </Link>
+  );
+}
+
+/** Plan 318: server 设置 → 出站与路由 — a native server's vendors come from
+ * its node (read-only here). */
+export function VendorFromNode({
+  server,
+  attention,
+}: {
+  server: LandingServer;
+  attention?: ReactNode;
+}) {
+  const names = (server.vendorKeys || []).map(
+    (k) => server.vendorOptions?.find((o) => o.key === k)?.name || k,
+  );
+  const other = server.vendorOther?.trim();
+  const node = server.vendorNodeName || server.name;
+
+  return (
+    <div data-vendor-from-node className="space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-sm text-foreground">VPS 厂商</span>
+        <span className="text-xs text-default-500">（跟随节点「{node}」）</span>
+        {names.map((n) => (
+          <Pill key={n} tone="teal">
+            {n}
+          </Pill>
+        ))}
+        {other && <Pill tone="red">其他「{other}」</Pill>}
+        {names.length === 0 && !other && <Pill tone="amber">未设置</Pill>}
+      </div>
+      {other ? (
+        <p className="text-xs text-danger">
+          {attention}
+          厂商「{other}」不在管理厂商列表，请先在管理厂商补齐域名，再回节点选择
+          {names.length > 0 ? "（已选的厂商照常屏蔽）" : ""}
+        </p>
+      ) : names.length === 0 ? (
+        <p className="text-xs text-warning">
+          {attention}
+          未设置厂商，屏蔽本机厂商官网在这台服务器上不生效
+        </p>
+      ) : (
+        <p className="text-xs text-default-500">
+          屏蔽：{(server.vendorDomains || []).join("、")}（含子域名）
+          {!server.vendorSni
+            ? "；按访问的域名匹配"
+            : "；按域名和 TLS SNI / HTTP Host 匹配"}
+        </p>
+      )}
+      <p className="text-xs text-default-500">
+        厂商在节点页「编辑节点 → VPS 厂商」里选，域名在「全局规则 → 内置 →
+        管理厂商」里维护。 <NodeEditLink nodeId={server.nodeId} />
+      </p>
+    </div>
+  );
+}
+
+/** 管理厂商: one native server's row — its node's vendors, read-only. */
+function NativeServerVendor({ s }: { s: VendorBlockServer }) {
+  const other = s.vendorOther?.trim();
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-1 sm:justify-end">
+      {s.vendor ? (
+        <Pill tone="teal">{s.vendorName}</Pill>
+      ) : (
+        !other && <Pill tone="amber">未设置</Pill>
+      )}
+      {other && <Pill tone="red">其他「{other}」</Pill>}
+      <NodeEditLink label="在节点页改" nodeId={s.nodeId} />
+    </div>
+  );
+}
 
 /** Plan 316: the collapsed H5 line of the 内置 layer. */
 export function VendorCompactRow({ vendor }: { vendor: Vendor }) {
@@ -282,7 +385,6 @@ type Draft = {
   name: string;
   domains: string;
   remark: string;
-  aliases?: string[];
 };
 
 const toDraft = (v: LandingVendor): Draft => ({
@@ -290,7 +392,6 @@ const toDraft = (v: LandingVendor): Draft => ({
   name: v.name,
   domains: v.domains.join("\n"),
   remark: v.remark || "",
-  aliases: v.aliases,
 });
 
 /** 管理厂商: the vendor list (name + domains) and each server's vendor. */
@@ -311,7 +412,16 @@ function VendorManager({
   const [servers, setServers] = useState(vendor.servers || []);
 
   useEffect(() => setServers(vendor.servers || []), [vendor.servers]);
-  const used = new Set(servers.map((s) => s.vendor).filter(Boolean));
+  // Plan 318: a vendor picked on a node or a share cannot be deleted (the
+  // panel refuses it too).
+  const used = new Set([
+    ...servers
+      .filter((s) => s.source === "shared")
+      .map((s) => s.vendor)
+      .filter(Boolean),
+    ...servers.flatMap((s) => s.vendorKeys || []),
+  ]);
+  const nodeIssues = vendor.nodeIssues || [];
   const setRow = (i: number, patch: Partial<Draft>) =>
     setRows((cur) => cur.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const saveList = async () => {
@@ -325,7 +435,6 @@ function VendorManager({
           .map((d) => d.trim())
           .filter(Boolean),
         remark: r.remark,
-        aliases: r.aliases,
       })),
     });
 
@@ -367,57 +476,101 @@ function VendorManager({
             <h3 className="text-sm font-medium">每台落地服务器的厂商</h3>
             <p className="text-xs text-default-500">
               只屏蔽这台服务器自己的厂商；未设置的不屏蔽（卡片上显示
-              ⚠）。也可以在服务器的「设置 → 出站与路由」里改。
+              ⚠）。自有落地跟随它的节点，在节点页「编辑节点 → VPS
+              厂商」里改；妙妙屋共享在这里或服务器「设置 → 出站与路由」里选。
             </p>
             <div className="divide-y divide-divider rounded-lg border border-divider">
-              {servers.map((s) => (
-                <div
-                  key={s.id}
-                  className="grid grid-cols-1 items-center gap-2 p-2 sm:grid-cols-[minmax(0,1fr)_220px]"
-                  data-vendor-server={s.id}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">
-                      {!s.vendor && (
-                        <AttentionIcon
-                          className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]"
-                          level="warn"
-                        />
-                      )}
-                      {s.name}
-                    </div>
-                    <div className="text-xs text-default-500">
-                      {s.source === "shared" ? "妙妙屋共享" : "自有落地"} ·{" "}
-                      {s.nodes} 个节点
-                      {!s.vendor &&
-                        s.suggest &&
-                        ` · 建议：${nameOf(vendor, s.suggest)}`}
-                    </div>
-                  </div>
-                  <Select
-                    aria-label={`${s.name} 的厂商`}
-                    isDisabled={assigning === s.id}
-                    selectedKeys={[s.vendor || "-"]}
-                    size="sm"
-                    variant="bordered"
-                    onSelectionChange={(keys) => {
-                      const k = String(Array.from(keys)[0] ?? "");
+              {servers.map((s) => {
+                const native = s.source !== "shared";
+                const other = s.vendorOther?.trim();
 
-                      if (!k) return;
-                      void assign(s.id, k === "-" ? "" : k);
-                    }}
+                return (
+                  <div
+                    key={s.id}
+                    className="grid grid-cols-1 items-center gap-2 p-2 sm:grid-cols-[minmax(0,1fr)_auto]"
+                    data-vendor-server={s.id}
                   >
-                    {[
-                      <SelectItem key="-">未设置（不屏蔽）</SelectItem>,
-                      ...saved.map((v) => (
-                        <SelectItem key={v.key}>{v.name}</SelectItem>
-                      )),
-                    ]}
-                  </Select>
-                </div>
-              ))}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">
+                        {(!s.vendor || other) && (
+                          <AttentionIcon
+                            className="mr-1 inline-block h-3.5 w-3.5 align-[-2px]"
+                            level={other ? "error" : "warn"}
+                          />
+                        )}
+                        {s.name}
+                      </div>
+                      <div className="text-xs text-default-500">
+                        {native
+                          ? `自有落地 · 跟随节点「${s.nodeName || s.name}」`
+                          : "妙妙屋共享"}{" "}
+                        · {s.nodes} 个节点
+                      </div>
+                    </div>
+                    {native ? (
+                      <NativeServerVendor s={s} />
+                    ) : (
+                      <Select
+                        aria-label={`${s.name} 的厂商`}
+                        className="sm:w-[220px]"
+                        isDisabled={assigning === s.id}
+                        selectedKeys={[s.vendor || "-"]}
+                        size="sm"
+                        variant="bordered"
+                        onSelectionChange={(keys) => {
+                          const k = String(Array.from(keys)[0] ?? "");
+
+                          if (!k) return;
+                          void assign(s.id, k === "-" ? "" : k);
+                        }}
+                      >
+                        {[
+                          <SelectItem key="-">未设置（不屏蔽）</SelectItem>,
+                          ...saved.map((v) => (
+                            <SelectItem key={v.key}>{v.name}</SelectItem>
+                          )),
+                        ]}
+                      </Select>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </section>
+          {nodeIssues.length > 0 && (
+            <section data-vendor-node-issues className="space-y-2">
+              <h3 className="text-sm font-medium">
+                需要设置厂商的节点（{nodeIssues.length}）
+              </h3>
+              <p className="text-xs text-default-500">
+                「VPS
+                厂商」是节点的必填项；没设置或选了「其他」的节点做落地时不屏蔽（或只屏蔽已选的厂商）。厂商不在列表时，先在下面补上它和它的域名，再回节点选择。
+              </p>
+              <div className="divide-y divide-divider rounded-lg border border-divider">
+                {nodeIssues.map((n) => (
+                  <div
+                    key={n.id}
+                    className="flex flex-wrap items-center gap-2 p-2"
+                    data-vendor-node-issue={n.id}
+                  >
+                    <AttentionIcon
+                      className="h-3.5 w-3.5 shrink-0"
+                      level={n.other ? "error" : "warn"}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {n.name}
+                    </span>
+                    {n.other ? (
+                      <Pill tone="red">其他「{n.other}」不在列表</Pill>
+                    ) : (
+                      <Pill tone="amber">未设置</Pill>
+                    )}
+                    <NodeEditLink label="编辑节点" nodeId={n.id} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <section className="space-y-2">
             <h3 className="text-sm font-medium">厂商和它的域名</h3>
             <p className="text-xs text-default-500">
@@ -445,7 +598,9 @@ function VendorManager({
                     color="danger"
                     isDisabled={used.has(r.key)}
                     size="sm"
-                    title={used.has(r.key) ? "还有落地服务器在用" : "删除"}
+                    title={
+                      used.has(r.key) ? "还有节点或落地服务器在用" : "删除"
+                    }
                     variant="flat"
                     onPress={() =>
                       setRows((cur) => cur.filter((_, j) => j !== i))

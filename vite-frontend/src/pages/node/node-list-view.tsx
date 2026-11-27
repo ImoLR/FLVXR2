@@ -12,6 +12,7 @@ import { regionLabel } from "@/utils/region";
 import { getConnectionStatusMeta } from "./display";
 import { NodeIPv6RABadge } from "./ipv6-ra-badge";
 import { NodeAdminNoticeBadge } from "./admin-notice-badge";
+import { NodeVendorBadge } from "./vendor-field";
 import { NodeLeiKwanBadge } from "./leikwan-badge";
 import { NodeDDNSBadge } from "./ddns-badge";
 import { NodeUserSubdomainPill } from "./user-subdomain-pill";
@@ -63,6 +64,8 @@ interface Node extends LeiKwanNodeDetection {
   serverIpV4?: string;
   serverIpV6?: string;
   adminNotice?: string;
+  vendors?: string[]; // plan 318
+  vendorOther?: string;
   ipv6RaStatus?: "" | "ok" | "warn" | "error";
   ipv6RaDetail?: string;
   ipv6RaCheckedAt?: number;
@@ -320,6 +323,7 @@ function SortableTableRow({
             {node.name}
           </span>
           <NodeAdminNoticeBadge notice={node.adminNotice} />
+          <NodeVendorBadge node={node} onEdit={() => handleEdit(node)} />
         </div>
         {/* Plan 311: small tags on the region line (same as the card), so they
             never push the node name out. */}

@@ -41,6 +41,11 @@ import {
   hasDNSCacheAttention,
 } from "./node/dns-cache-badge";
 import { NodeAdminNoticeBadge } from "./node/admin-notice-badge";
+import {
+  NodeVendorBadge,
+  NodeVendorField,
+  validateNodeVendors,
+} from "./node/vendor-field";
 import { NodeLeiKwanBadge } from "./node/leikwan-badge";
 import {
   MachineConnChip,
@@ -115,6 +120,8 @@ import {
   recordNodeOfflineLog,
   getNodeTrafficResetLogs,
   deleteNodeTrafficResetLog,
+  getNodeVendorOptions,
+  type NodeVendorOption,
   type ReleaseChannel,
 } from "@/api";
 import { REGION_CODES, compareRegions, regionLabel } from "@/utils/region";
@@ -200,6 +207,9 @@ const protocolBlocksOf = (node: {
 const REGION_OPTIONS = [...REGION_CODES].sort(compareRegions);
 
 interface Node extends LeiKwanNodeDetection {
+  // Plan 318: VPS 厂商 (admin node list).
+  vendors?: string[];
+  vendorOther?: string;
   region?: string;
   regionCity?: string;
   adminNotice?: string;
@@ -267,6 +277,10 @@ interface Node extends LeiKwanNodeDetection {
   };
 }
 interface NodeForm extends MachineProtectForm {
+  // Plan 318: required VPS 厂商 (keys) + 「其他（列表里没有）」.
+  vendors: string[];
+  vendorOther: string;
+  vendorOtherOn: boolean;
   region: string;
   regionCity: string;
   adminNotice: string;
@@ -499,6 +513,9 @@ export default function NodePage() {
     id: null,
     name: "",
     remark: "",
+    vendors: [],
+    vendorOther: "",
+    vendorOtherOn: false,
     region: "",
     regionCity: "",
     adminNotice: "",
@@ -617,6 +634,27 @@ export default function NodePage() {
     }
   }
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Plan 318: the vendor list for the required 「VPS 厂商」 (read when the
+  // dialog opens, so a list edited elsewhere shows up).
+  const [vendorOptions, setVendorOptions] = useState<NodeVendorOption[]>([]);
+  const [vendorOptionsLoading, setVendorOptionsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!dialogVisible) return;
+    let live = true;
+
+    setVendorOptionsLoading(true);
+    getNodeVendorOptions()
+      .then((res) => {
+        if (live && res.code === 0) setVendorOptions(res.data?.vendors || []);
+      })
+      .catch(() => undefined)
+      .finally(() => live && setVendorOptionsLoading(false));
+
+    return () => {
+      live = false;
+    };
+  }, [dialogVisible]);
 
   useEffect(() => {
     if (!dialogVisible) return;
@@ -1252,6 +1290,8 @@ export default function NodePage() {
     if (Array.from(form.adminNotice.trim()).length > 512) {
       newErrors.adminNotice = "节点提示不能超过512个字符";
     }
+    // Plan 318: VPS 厂商 is required (also for an old node being edited).
+    Object.assign(newErrors, validateNodeVendors(form, vendorOptions));
     const v4 = form.serverIpV4.trim();
     const v6 = form.serverIpV6.trim();
     const intranet = form.intranetIp.trim();
@@ -1305,6 +1345,9 @@ export default function NodePage() {
       id: node.id,
       name: node.name,
       remark: node.remark || "",
+      vendors: node.vendors || [],
+      vendorOther: node.vendorOther || "",
+      vendorOtherOn: Boolean(node.vendorOther),
       region: node.region || "",
       regionCity: node.regionCity || "",
       adminNotice: node.adminNotice || "",
@@ -1331,6 +1374,22 @@ export default function NodePage() {
     });
     setDialogVisible(true);
   };
+  // Plan 318: /node?edit=<id> (links from 落地 → 管理厂商 / 设置) opens that
+  // node's edit dialog once the list is loaded.
+  const editFromLink = useRef(false);
+
+  useEffect(() => {
+    if (editFromLink.current || nodeList.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const id = Number(params.get("edit") || 0);
+
+    if (!id) return;
+    editFromLink.current = true;
+    const target = nodeList.find((n) => n.id === id);
+
+    navigate("/node", { replace: true });
+    if (target) handleEdit(target);
+  }, [nodeList]);
   const handleDelete = (node: Node) => {
     setNodeToDelete(node);
     setDeleteModalOpen(true);
@@ -1816,6 +1875,11 @@ export default function NodePage() {
       const { intranetIp, serverIpV4, serverIpV6, ...rest } = form;
       const data = {
         ...rest,
+        // Plan 318: 「其他」 name only while 「其他」 is picked (the UI flag is
+        // not sent).
+        vendorOtherOn: undefined,
+        vendors: form.vendors,
+        vendorOther: form.vendorOtherOn ? form.vendorOther.trim() : "",
         remark: form.remark.trim(),
         regionCity: form.regionCity.trim(),
         adminNotice: form.adminNotice.trim(),
@@ -1890,6 +1954,10 @@ export default function NodePage() {
                     region: form.region,
                     regionCity: form.regionCity.trim(),
                     adminNotice: form.adminNotice.trim(),
+                    vendors: form.vendors,
+                    vendorOther: form.vendorOtherOn
+                      ? form.vendorOther.trim()
+                      : "",
                     expiryTime: form.expiryTime,
                     renewalCycle: form.renewalCycle,
                     groupId: form.groupId,
@@ -1943,6 +2011,9 @@ export default function NodePage() {
       id: null,
       name: "",
       remark: "",
+      vendors: [],
+      vendorOther: "",
+      vendorOtherOn: false,
       region: "",
       regionCity: "",
       adminNotice: "",
@@ -2444,6 +2515,7 @@ export default function NodePage() {
                 }
                 notice={node.adminNotice}
               />
+              <NodeVendorBadge node={node} onEdit={() => handleEdit(node)} />
             </div>
             {/* Plan 311: the small tags live on the region line (wrapping), so the
                 name row keeps its full width for the name. */}
@@ -3484,6 +3556,25 @@ export default function NodePage() {
                   }
                 />
               </div>
+              {/* Plan 318: required VPS 厂商 (multi, 其他). */}
+              <NodeVendorField
+                errors={{
+                  vendors: errors.vendors,
+                  vendorOther: errors.vendorOther,
+                }}
+                isEdit={isEdit}
+                loading={vendorOptionsLoading && vendorOptions.length === 0}
+                options={vendorOptions}
+                value={form}
+                onChange={(next) => {
+                  setErrors((prev) => ({
+                    ...prev,
+                    vendors: "",
+                    vendorOther: "",
+                  }));
+                  setForm((prev) => ({ ...prev, ...next }));
+                }}
+              />
               {/* 节点提示 (plan 154): admin-only ⚠ on the node card. */}
               <Textarea
                 data-testid="node-admin-notice"
