@@ -176,7 +176,6 @@ export interface LandingVendor {
   name: string;
   domains: string[];
   remark?: string;
-  aliases?: string[];
 }
 
 export interface VendorBlockServer {
@@ -186,9 +185,21 @@ export interface VendorBlockServer {
   nodes: number;
   vendor: string;
   vendorName?: string;
-  suggest?: string;
+  // Plan 318 (native): the vendor follows the node — its id / name, keys and
+  // 「其他（列表里没有）」 name (read-only here, edited on the node page).
+  nodeId?: number;
+  nodeName?: string;
+  vendorKeys?: string[];
+  vendorOther?: string;
   // The server's agent also matches the sniffed SNI / Host (plan-316 agent).
   sni: boolean;
+}
+
+// Plan 318: a node that still needs its admin (no vendor, or 「其他」).
+export interface VendorNodeIssue {
+  id: number;
+  name: string;
+  other: string;
 }
 
 export interface VendorBlockAdmin {
@@ -196,6 +207,7 @@ export interface VendorBlockAdmin {
   vendors?: LandingVendor[];
   custom?: boolean;
   servers?: VendorBlockServer[];
+  nodeIssues?: VendorNodeIssue[];
   unset?: number;
 }
 

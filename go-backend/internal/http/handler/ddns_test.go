@@ -422,7 +422,7 @@ func TestNodeDDNSOldAgentAndPanelSource(t *testing.T) {
 func TestNodeDDNSCreateWithEmptyAddressUsesDomain(t *testing.T) {
 	l := newDDNSLab(t)
 	body := map[string]interface{}{"name": "new-hutai", "serverIpV4": "", "serverIpV6": "", "port": "1000-2000", "extraIPs": "",
-		"ddns": node48DDNS(nil)}
+		"ddns": node48DDNS(nil), "vendors": []string{"leikwan"}}
 	code, msg, _ := adminPost(t, l.h.nodeCreate, body)
 	if code != 0 {
 		t.Fatalf("create: %d %s", code, msg)

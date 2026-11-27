@@ -86,18 +86,25 @@ export function serverAdminAttention(
   // automatically (that changes users' links), the admin decides.
   realityRiskReasons(server, native, guardOn, add);
   // Plan 316 (both kinds): 屏蔽本机厂商官网 needs this server's vendor.
-  if (server.vendorOn && server.vendorOptions && !server.vendor) {
-    const hint = server.vendorOptions.find(
-      (v) => v.key === server.vendorSuggest,
-    )?.name;
+  // Plan 318: no guessing; a native server follows its node's 「VPS 厂商」
+  // (其他 = red, the vendor must be added in 管理厂商 first).
+  if (server.vendorOn && server.vendorOptions) {
+    const other = server.vendorFromNode ? server.vendorOther?.trim() : "";
 
-    add(
-      "vendor-unset",
-      "warn",
-      hint
-        ? `未设置厂商：屏蔽本机厂商官网未生效（建议：${hint}），在「出站与路由」里选择`
-        : "未设置厂商：屏蔽本机厂商官网未生效，在「出站与路由」里选择",
-    );
+    if (other)
+      add(
+        "vendor-other",
+        "error",
+        `节点「${server.vendorNodeName || server.name}」：厂商「${other}」不在管理厂商列表，请先在管理厂商补齐域名，再回节点选择`,
+      );
+    else if (!server.vendor)
+      add(
+        "vendor-unset",
+        "warn",
+        server.vendorFromNode
+          ? `未设置厂商：屏蔽本机厂商官网未生效，在节点页编辑节点「${server.vendorNodeName || server.name}」选择 VPS 厂商`
+          : "未设置厂商：屏蔽本机厂商官网未生效，在「出站与路由」里选择",
+      );
   }
   if (!native) return pack(reasons);
 

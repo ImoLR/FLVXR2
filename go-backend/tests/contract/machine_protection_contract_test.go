@@ -99,14 +99,14 @@ func TestMachineProtectionSettingsContract(t *testing.T) {
 	admin := mustAdminToken(t, secret)
 
 	// Create: defaults on; an explicit choice (incl. false / 0) is stored as given.
-	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "defaults", "serverIpV4": "198.51.100.10"}); out.Code != 0 {
+	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "defaults", "serverIpV4": "198.51.100.10", "vendors": []string{"dmit"}}); out.Code != 0 {
 		t.Fatalf("create = %+v", out)
 	}
-	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "custom", "serverIpV4": "198.51.100.11",
+	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "custom", "serverIpV4": "198.51.100.11", "vendors": []string{"dmit"},
 		"machineProtectEnabled": false, "machineMaxTotal": 0, "machineTwBuckets": 0, "machineCloseWaitSeconds": 30}); out.Code != 0 {
 		t.Fatalf("create custom = %+v", out)
 	}
-	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "bad", "serverIpV4": "198.51.100.12", "machineMaxTotal": 50}); out.Code == 0 {
+	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "bad", "serverIpV4": "198.51.100.12", "machineMaxTotal": 50, "vendors": []string{"dmit"}}); out.Code == 0 {
 		t.Fatal("cap below 100 accepted on create")
 	}
 	var nodes []model.Node
@@ -176,7 +176,7 @@ func TestMachineProtectionPushAndVisibilityContract(t *testing.T) {
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 	base := "ws" + strings.TrimPrefix(srv.URL, "http")
-	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "agent", "serverIpV4": "198.51.100.20"}); out.Code != 0 {
+	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "agent", "serverIpV4": "198.51.100.20", "vendors": []string{"dmit"}}); out.Code != 0 {
 		t.Fatalf("create = %+v", out)
 	}
 	n := nodeRow(t, r, 1)

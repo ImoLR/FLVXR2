@@ -133,9 +133,9 @@ func TestNodeAdminNoticeOnCreate(t *testing.T) {
 		want string
 		ok   bool
 	}{
-		{`{"name":"with","serverIp":"10.0.0.1","adminNotice":" 提示 "}`, "提示", true},
-		{`{"name":"without","serverIp":"10.0.0.2"}`, "", true},
-		{`{"name":"long","serverIp":"10.0.0.3","adminNotice":"` + strings.Repeat("x", 513) + `"}`, "", false},
+		{`{"name":"with","serverIp":"10.0.0.1","adminNotice":" 提示 ","vendors":["dmit"]}`, "提示", true},
+		{`{"name":"without","serverIp":"10.0.0.2","vendors":["dmit"]}`, "", true},
+		{`{"name":"long","serverIp":"10.0.0.3","vendors":["dmit"],"adminNotice":"` + strings.Repeat("x", 513) + `"}`, "", false},
 	} {
 		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tc.body))
 		r = r.WithContext(context.WithValue(r.Context(), middleware.ClaimsContextKey, auth.Claims{Sub: "1", RoleID: 0}))

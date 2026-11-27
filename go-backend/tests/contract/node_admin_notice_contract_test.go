@@ -60,7 +60,7 @@ func TestNodeAdminNoticeContract(t *testing.T) {
 
 			// Create with a notice (trim + CRLF), and without one.
 			out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{
-				"name": "sg", "serverIpV4": "192.0.2.39", "adminNotice": "  第一行\r\n第二行  ",
+				"name": "sg", "serverIpV4": "192.0.2.39", "adminNotice": "  第一行\r\n第二行  ", "vendors": []string{"dmit"},
 			})
 			if out.Code != 0 {
 				t.Fatalf("create: %+v", out)
@@ -68,7 +68,7 @@ func TestNodeAdminNoticeContract(t *testing.T) {
 			if got, ok := listNotice("sg"); !ok || got != "第一行\n第二行" {
 				t.Fatalf("created notice %q %v", got, ok)
 			}
-			if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "plain", "serverIpV4": "192.0.2.40"}); out.Code != 0 {
+			if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "plain", "serverIpV4": "192.0.2.40", "vendors": []string{"dmit"}}); out.Code != 0 {
 				t.Fatalf("create plain: %+v", out)
 			}
 			if got, ok := listNotice("plain"); !ok || got != "" {

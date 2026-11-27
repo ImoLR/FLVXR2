@@ -84,9 +84,9 @@ func TestDNSCacheReportEnsureAndLandingContract(t *testing.T) {
 	defer srv.Close()
 	base := "ws" + strings.TrimPrefix(srv.URL, "http")
 	for _, n := range []map[string]interface{}{
-		{"name": "new-agent", "serverIpV4": "198.51.100.31"},
-		{"name": "old-agent", "serverIpV4": "198.51.100.32"},
-		{"name": "landing-agent", "serverIpV4": "198.51.100.33"},
+		{"name": "new-agent", "serverIpV4": "198.51.100.31", "vendors": []string{"dmit"}},
+		{"name": "old-agent", "serverIpV4": "198.51.100.32", "vendors": []string{"dmit"}},
+		{"name": "landing-agent", "serverIpV4": "198.51.100.33", "vendors": []string{"dmit"}},
 	} {
 		if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", n); out.Code != 0 {
 			t.Fatalf("create = %+v", out)

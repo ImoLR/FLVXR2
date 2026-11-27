@@ -35,16 +35,19 @@ var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil"
 	"region", "regionAuto", "regionOverride",
 	// Plan 290: Reality dests on Cloudflare / Reality listeners without 防盗 (⚠), admin only.
 	"realityRisk",
-	// Plan 316: 屏蔽本机厂商官网 — VPS 厂商 (key, suggestion when unset, switch, SNI agent, choices), admin only.
-	"vendor", "vendorOn", "vendorOptions", "vendorSni", "vendorSuggest"}
+	// Plan 316: 屏蔽本机厂商官网 — VPS 厂商 (key, switch, SNI agent, choices), admin only.
+	// Plan 318: no suggestion any more.
+	"vendor", "vendorOn", "vendorOptions", "vendorSni"}
 
 // Plan 211: shared servers also carry the 妙妙屋 share cap (read-only).
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)
 
 // Plan 274: native servers also say whether their agent runs AnyTLS (the
 // fixture's agent does not, so the reason is there too); plan 317: Snell and
-// Mieru the same way.
-var landingAdminServerKeysNativeOnly = append([]string{"anytlsAvailable", "anytlsReason", "mieruAvailable", "mieruReason", "snellAvailable", "snellReason"}, landingAdminServerKeysNative...)
+// Mieru the same way. Plan 318: a native server's vendor follows its node
+// (read-only view of the node's pick: from-node flag, node name, keys,
+// 「其他」 name), admin only.
+var landingAdminServerKeysNativeOnly = append([]string{"anytlsAvailable", "anytlsReason", "mieruAvailable", "mieruReason", "snellAvailable", "snellReason", "vendorFromNode", "vendorKeys", "vendorNodeName", "vendorOther"}, landingAdminServerKeysNative...)
 
 // Plan 132: a non-admin's server list shows only the caller's own node count
 // and how many more they can create (both caps, counted like node creation);
@@ -134,7 +137,7 @@ func TestLandingUserServerViewContract(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride", "vendor", "vendorName", "vendorOn", "vendorOptions", "vendorSni", "vendorSuggest"}
+			userForbidden := []string{"realityMode", "realityProbe", "realityPins", "realityProbeError", "realityProbeStats", "realityTrialRule", "connections", "billedBytes", "usedBytes", "maxConnections", "defaultMaxConnections", "defaultMaxOnlineIps", "defaultTrafficLimitBytes", "defaultUserQuotaBytes", "busyPortCount", "sharedSyncError", "sharedNotice", "sharedLastSyncAt", "sharedPushedRevision", "sharedAppliedRevision", "coreMemoryMb", "coreCpuPercent", "remoteServerId", "userGroupIds", "directUserCount", "chainNodeCount", "chainOnly", "egress", "routeProfileId", "egressState", "egressError", "regionAuto", "regionOverride", "vendor", "vendorName", "vendorOn", "vendorOptions", "vendorSni", "vendorSuggest", "vendorFromNode", "vendorKeys", "vendorNodeName", "vendorOther", "vendorDomains"}
 			// Plan 286 round 2: users get the effective region (可用落地 region groups).
 			userKept := []string{"id", "name", "source", "status", "online", "protocols", "protocolFilterFeatures", "flowType", "trafficRatio", "availableUntil", "egressLabel", "nodeCount", "myRemaining", "maxNodesPerUser", "vlessEncAvailable", "region"}
 			checkUser := func(v map[string]interface{}, nodeCount, remaining float64) {

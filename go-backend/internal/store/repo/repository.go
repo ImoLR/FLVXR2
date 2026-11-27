@@ -427,6 +427,9 @@ func autoMigrateAll(db *gorm.DB) error {
 	if err := chainOnlyCoreCPUMigration(db); err != nil {
 		return fmt.Errorf("migrate chain-only core cpu: %w", err)
 	}
+	if err := nodeVendorMigration(db); err != nil { // plan 318
+		return fmt.Errorf("migrate node vendors: %w", err)
+	}
 
 	// 执行数据迁移
 	if err := migrateTunnelGroupNew(db); err != nil {
@@ -1192,6 +1195,9 @@ func (r *Repository) ListNodes(opts *ListNodesOptions) ([]map[string]interface{}
 			"regionCity":   n.RegionCity,
 			"entryAlias":   n.EntryAlias,
 			"adminNotice":  n.AdminNotice, // admins only: node/list strips it for other roles (plan 154)
+			// Plan 318: VPS 厂商 (admins only, stripped like adminNotice).
+			"vendors":     NodeVendorPickOf(&n).Keys,
+			"vendorOther": n.VendorOther,
 			"remark":       nullableString(n.Remark),
 			"expiryTime":   nullableInt64(n.ExpiryTime),
 			"renewalCycle": nullableString(n.RenewalCycle),

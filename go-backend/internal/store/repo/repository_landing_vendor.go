@@ -98,14 +98,18 @@ func (r *Repository) SaveLandingVendors(list []landingegress.Vendor) ([]landinge
 	for _, v := range norm {
 		keys[v.Key] = true
 	}
+	// Plan 318: shares pick on the server; native servers follow their node.
 	var used []model.LandingServer
-	if err := r.db.Select("id", "name", "vendor").Where("vendor <> ''").Find(&used).Error; err != nil {
+	if err := r.db.Select("id", "name", "vendor").Where("source = ? AND vendor <> ''", "shared").Find(&used).Error; err != nil {
 		return nil, err
 	}
 	for _, s := range used {
 		if !keys[s.Vendor] {
 			return nil, fmt.Errorf("落地服务器「%s」还在使用被删除的厂商，请先在它的「设置」里改掉", s.Name)
 		}
+	}
+	if err := checkVendorListAgainstNodes(r.db, norm); err != nil {
+		return nil, err
 	}
 	raw, _ := json.Marshal(norm)
 	if err := r.upsertLandingSetting(model.LandingEgressSetting{Vendors: string(raw)}, []string{"vendors"}); err != nil {
@@ -114,7 +118,8 @@ func (r *Repository) SaveLandingVendors(list []landingegress.Vendor) ([]landinge
 	return norm, nil
 }
 
-// SetLandingServerVendor assigns a vendor ("" = none); like a profile change
+// SetLandingServerVendor assigns a shared server's vendor ("" = none; plan
+// 318: a native server follows its node, see SetNodeVendors); like a profile change
 // (SetLandingServerEgress) the caller re-syncs the server, which pushes the
 // new plan to the agent / Helper.
 func (r *Repository) SetLandingServerVendor(id int64, key string) error {
@@ -127,8 +132,18 @@ func (r *Repository) SetLandingServerVendor(id int64, key string) error {
 			return errors.New("厂商不存在")
 		}
 	}
+	var s model.LandingServer
+	if err := r.db.Select("id", "source").First(&s, id).Error; err != nil {
+		return err
+	}
+	if s.Source != "shared" {
+		return ErrNativeVendorOnNode
+	}
 	return r.db.Model(&model.LandingServer{}).Where("id = ?", id).Updates(map[string]any{"vendor": key, "updated_time": time.Now().UnixMilli()}).Error
 }
+
+// ErrNativeVendorOnNode: a native landing's vendor is the node's (plan 318).
+var ErrNativeVendorOnNode = errors.New("自有落地的厂商跟随节点：请在节点页「编辑节点 → VPS 厂商」里选择")
 
 // LandingServerVendorRef is one server in the 内置 admin row.
 type LandingServerVendorRef struct {
@@ -138,6 +153,9 @@ type LandingServerVendorRef struct {
 	Source string
 	Vendor string
 	Nodes  int
+	// Plan 318 (native): the node's name and pick, which the rule follows.
+	NodeName string
+	Pick     NodeVendorPick
 }
 
 // LandingServerVendorRefs lists active servers with their vendor and live
@@ -159,9 +177,30 @@ func (r *Repository) LandingServerVendorRefs() ([]LandingServerVendorRef, error)
 	for _, c := range counts {
 		by[c.LandingServerID] = c.N
 	}
+	var nodeIDs []int64
+	for _, s := range servers {
+		if s.Source == "native" && s.NodeID > 0 {
+			nodeIDs = append(nodeIDs, s.NodeID)
+		}
+	}
+	nodes := map[int64]model.Node{}
+	if len(nodeIDs) > 0 {
+		var rows []model.Node
+		if err := r.db.Select("id", "name", "vendors", "vendor_other").Where("id IN ?", nodeIDs).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		for _, n := range rows {
+			nodes[n.ID] = n
+		}
+	}
 	out := make([]LandingServerVendorRef, 0, len(servers))
 	for _, s := range servers {
-		out = append(out, LandingServerVendorRef{ID: s.ID, NodeID: s.NodeID, Name: s.Name, Source: s.Source, Vendor: s.Vendor, Nodes: by[s.ID]})
+		ref := LandingServerVendorRef{ID: s.ID, NodeID: s.NodeID, Name: s.Name, Source: s.Source, Vendor: s.Vendor, Nodes: by[s.ID]}
+		if s.Source == "native" {
+			n := nodes[s.NodeID]
+			ref.NodeName, ref.Pick = n.Name, NodeVendorPickOf(&n)
+		}
+		out = append(out, ref)
 	}
 	return out, nil
 }

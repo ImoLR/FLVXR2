@@ -374,7 +374,7 @@ func ensureChainHostTx(tx *gorm.DB, nodeID int64) (*model.LandingServer, error) 
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: ChainOnlyCoreCPUPercent, Status: "active", Revision: 1, ChainOnly: true, CreatedTime: now, UpdatedTime: now}
+	s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: 30000, PortMax: 39999, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, Protocols: `["vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: ChainOnlyCoreCPUPercent, Status: "active", Revision: 1, ChainOnly: true, CreatedTime: now, UpdatedTime: now, Vendor: NodeVendorMirror(&n)} // plan 318: rollback mirror
 	if err := tx.Create(&s).Error; err != nil {
 		return nil, err
 	}

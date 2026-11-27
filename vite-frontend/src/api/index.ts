@@ -135,6 +135,18 @@ export const getUserPackageInfo = () =>
 export const createNode = (data: NodeMutationPayload) =>
   Network.post("/node/create", data);
 export const getNodeList = () => Network.post<NodeApiItem[]>("/node/list");
+// Plan 318: the vendor list for the node dialog's required 「VPS 厂商」.
+export interface NodeVendorOption {
+  key: string;
+  name: string;
+  domains: string[];
+  remark?: string;
+}
+export const getNodeVendorOptions = () =>
+  Network.post<{ on: boolean; vendors: NodeVendorOption[] }>(
+    "/node/vendor/options",
+    {},
+  );
 export const detectNodeRegion = (data: {
   serverIpV4: string;
   serverIp: string;
