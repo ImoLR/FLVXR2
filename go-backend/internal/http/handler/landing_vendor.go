@@ -16,15 +16,22 @@ import (
 // Plan 316 「屏蔽本机厂商官网」: every landing server blocks its own VPS
 // vendor's sites (内置 row, first plan rule). Admin: the vendor list, the
 // global switch and each server's vendor.
+// Plan 318: no guessing; the vendor belongs to the node (required, multi) and
+// a native landing follows its node; mmwx shares keep their own pick.
 
 // landingVendorAdminView is the 内置 row of the admin 全局规则 card: switch,
-// vendor list and every active server with its vendor (or a suggestion).
+// vendor list, every active server with its vendor (native: its node's
+// vendors, read-only) and the nodes that still need a vendor (未设置 / 其他).
 func (h *Handler) landingVendorAdminView() (map[string]any, error) {
 	vs, err := h.repo.GetLandingVendorSettings()
 	if err != nil {
 		return nil, err
 	}
 	refs, err := h.repo.LandingServerVendorRefs()
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := h.repo.NodeVendorRefs()
 	if err != nil {
 		return nil, err
 	}
@@ -36,46 +43,74 @@ func (h *Handler) landingVendorAdminView() (map[string]any, error) {
 	servers := []map[string]any{}
 	unset := 0
 	for _, s := range refs {
-		item := map[string]any{"id": s.ID, "name": s.Name, "source": s.Source, "nodes": s.Nodes, "vendor": s.Vendor, "vendorName": names[s.Vendor]}
-		if names[s.Vendor] == "" {
-			item["vendor"] = ""
-			item["suggest"] = landingegress.SuggestVendor(vs.Vendors, s.Name)
-			unset++
+		item := map[string]any{"id": s.ID, "name": s.Name, "source": s.Source, "nodes": s.Nodes, "vendor": "", "vendorName": ""}
+		if s.Source == "native" {
+			item["nodeId"], item["nodeName"] = s.NodeID, s.NodeName
+			item["vendorKeys"], item["vendorOther"] = s.Pick.Keys, s.Pick.Other
+			if c, _, ok := landingegress.CombineVendors(vs.Vendors, s.Pick.Keys); ok {
+				item["vendor"], item["vendorName"] = c.Key, c.Name
+			}
+		} else if names[s.Vendor] != "" {
+			item["vendor"], item["vendorName"] = s.Vendor, names[s.Vendor]
+		} else {
+			unset++ // a share without a vendor (native ones count as their node below)
 		}
 		// SNI / Host match needs the plan-316 agent; mmwx shares and older
 		// agents match the requested domain only.
 		item["sni"] = s.Source == "native" && facts[s.NodeID].LandingGuard >= landingegress.VendorVersion
 		servers = append(servers, item)
 	}
-	return map[string]any{"on": vs.On, "vendors": vs.Vendors, "custom": vs.Custom, "servers": servers, "unset": unset}, nil
+	issues := []map[string]any{}
+	for _, n := range nodes {
+		if _, _, ok := landingegress.CombineVendors(vs.Vendors, n.Pick.Keys); ok && n.Pick.Other == "" {
+			continue
+		}
+		issues = append(issues, map[string]any{"id": n.ID, "name": n.Name, "other": n.Pick.Other})
+	}
+	unset += len(issues)
+	return map[string]any{"on": vs.On, "vendors": vs.Vendors, "custom": vs.Custom, "servers": servers, "nodeIssues": issues, "unset": unset}, nil
 }
 
 // landingServerVendorView adds the admin fields of a server card / 设置
-// dialog: vendor name ("" = 未设置 or unknown), the name-based suggestion, the
-// global switch and whether its agent also matches SNI / Host.
+// dialog: the global switch, whether its agent also matches SNI / Host, the
+// vendor options (shares pick one) and the vendor in force ("" = none).
+// Native servers (plan 318) show their node's pick read-only: vendorFromNode,
+// vendorNodeName, vendorKeys, vendorOther.
 func landingServerVendorView(s model.LandingServer, v map[string]any, catalog landingEgressCatalog) {
 	if catalog.vendors == nil {
 		return
 	}
 	vs := catalog.vendors()
-	vendor, ok := landingegress.FindVendor(vs.Vendors, s.Vendor)
-	if !ok {
-		v["vendor"] = ""
-		v["vendorSuggest"] = landingegress.SuggestVendor(vs.Vendors, s.Name)
-	} else {
-		v["vendorName"] = vendor.Name
-	}
 	v["vendorOn"] = vs.On
-	sni := false
+	var facts repo.LandingNativeNodeFacts
 	if s.Source == "native" && catalog.nodeFacts != nil {
-		sni = catalog.nodeFacts()[s.NodeID].LandingGuard >= landingegress.VendorVersion
+		facts = catalog.nodeFacts()[s.NodeID]
 	}
-	v["vendorSni"] = sni
+	v["vendorSni"] = s.Source == "native" && facts.LandingGuard >= landingegress.VendorVersion
 	opts := make([]map[string]any, 0, len(vs.Vendors))
 	for _, x := range vs.Vendors {
 		opts = append(opts, map[string]any{"key": x.Key, "name": x.Name, "domains": x.Domains})
 	}
 	v["vendorOptions"] = opts
+	var vendor landingegress.Vendor
+	var ok bool
+	if s.Source == "native" {
+		v["vendorFromNode"] = true
+		v["vendorNodeName"] = facts.Name
+		v["vendorKeys"] = facts.VendorPick.Keys
+		v["vendorOther"] = facts.VendorPick.Other
+		if facts.VendorPick.Keys == nil {
+			v["vendorKeys"] = []string{}
+		}
+		vendor, _, ok = landingegress.CombineVendors(vs.Vendors, facts.VendorPick.Keys)
+	} else {
+		vendor, ok = landingegress.FindVendor(vs.Vendors, s.Vendor)
+	}
+	if !ok {
+		v["vendor"] = ""
+		return
+	}
+	v["vendor"], v["vendorName"], v["vendorDomains"] = vendor.Key, vendor.Name, vendor.Domains
 }
 
 // landingVendorNodeView is the read-only row of one node: its server's vendor,
@@ -160,7 +195,8 @@ func (h *Handler) landingVendorSave(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(view))
 }
 
-// landingVendorAssign sets one server's vendor ("" = 未设置) and syncs it.
+// landingVendorAssign sets one shared server's vendor ("" = 未设置) and syncs
+// it. A native server follows its node (plan 318): refused with a hint.
 func (h *Handler) landingVendorAssign(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ServerID int64  `json:"serverId"`
@@ -188,7 +224,8 @@ func (h *Handler) landingVendorAssign(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, response.OK(view))
 }
 
-// setLandingServerVendor stores a changed vendor and pushes the server's plan.
+// setLandingServerVendor stores a changed (shared) vendor and pushes the
+// server's plan.
 func (h *Handler) setLandingServerVendor(id int64, old, key string) error {
 	key = strings.ToLower(strings.TrimSpace(key))
 	if key == old {

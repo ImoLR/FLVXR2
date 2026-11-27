@@ -29,7 +29,7 @@ func TestForwardWarmTagContract(t *testing.T) {
 	defer srv.Close()
 	base := "ws" + strings.TrimPrefix(srv.URL, "http")
 
-	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "warm-entry", "serverIpV4": "198.51.100.30"}); out.Code != 0 {
+	if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", map[string]interface{}{"name": "warm-entry", "serverIpV4": "198.51.100.30", "vendors": []string{"dmit"}}); out.Code != 0 {
 		t.Fatalf("node create = %+v", out)
 	}
 	n := nodeRow(t, r, 1)

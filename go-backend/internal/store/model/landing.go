@@ -52,6 +52,9 @@ type LandingServer struct {
 	EgressWarnings           string `gorm:"type:text;not null;default:''" json:"-"`
 	// Plan 316 「屏蔽本机厂商官网」: key of the VPS vendor hosting this server
 	// ('' = 未设置; see landingegress.Vendor). Set only via its own API path.
+	// Plan 318: shared servers only; on a native server the rule follows its
+	// node's vendors (node.vendors) and this column is a mirror of the first
+	// one, kept so a rollback to fork.176 renders the same rule.
 	Vendor    string `gorm:"not null;default:''" json:"vendor"`
 	ChainOnly bool   `gorm:"not null;default:false" json:"chainOnly"` // exit landing auto-created for chain rules (plan 108); never shown to or usable by users
 	// Reality guard (plan 127): admin switch (stored inverted, default on) and

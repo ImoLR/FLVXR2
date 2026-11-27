@@ -75,6 +75,7 @@ func TestNodeCreateRegionDetectionContract(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.body["name"] = tc.name
+			tc.body["vendors"] = "dmit" // plan 318: required (comma-list form)
 			out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", tc.body)
 			if out.Code != 0 {
 				t.Fatalf("node create = %+v", out)

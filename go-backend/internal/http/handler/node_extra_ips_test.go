@@ -53,7 +53,7 @@ func TestNodeCreateValidatesAndNormalizesExtraIPs(t *testing.T) {
 	e := newFlowTestEnv(t)
 	body := func(name, extra string) map[string]interface{} {
 		return map[string]interface{}{"name": name, "serverIp": "2001:db8::1", "serverIpV4": "", "serverIpV6": "2001:db8::1",
-			"port": "1000-2000", "extraIPs": extra}
+			"port": "1000-2000", "extraIPs": extra, "vendors": []string{"dmit"}}
 	}
 	if code, msg, _ := adminPost(t, e.h.nodeCreate, body("two-v6", " 2001:DB8::2\n2001:db8::2,203.0.113.9 ")); code != 0 {
 		t.Fatalf("create failed: %d %s", code, msg)

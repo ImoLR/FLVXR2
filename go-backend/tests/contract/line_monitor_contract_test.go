@@ -26,9 +26,9 @@ func TestLineMonitorContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range []map[string]interface{}{
-		{"name": "AWS HK", "serverIpV4": "198.51.100.41"},
-		{"name": "Fachost seednet 黑五", "serverIpV4": "198.51.100.42"},
-		{"name": "Tcscloud Seednet", "serverIpV4": "198.51.100.43"},
+		{"name": "AWS HK", "serverIpV4": "198.51.100.41", "vendors": []string{"aws"}},
+		{"name": "Fachost seednet 黑五", "serverIpV4": "198.51.100.42", "vendors": []string{"fachost"}},
+		{"name": "Tcscloud Seednet", "serverIpV4": "198.51.100.43", "vendors": []string{"tcscloud"}},
 	} {
 		if out := requestContractEnvelope(t, router, admin, "/api/v1/node/create", n); out.Code != 0 {
 			t.Fatalf("create node = %+v", out)

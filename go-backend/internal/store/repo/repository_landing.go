@@ -148,7 +148,7 @@ func (r *Repository) EnableLandingServerNote(nodeID int64) (*model.LandingServer
 			return err
 		}
 		note = picked
-		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: lo, PortMax: hi, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, DefaultMaxTotalConnections: LandingDefaultNodeTotal, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now}
+		s = model.LandingServer{Source: "native", NodeID: nodeID, Name: n.Name, PublicHost: host, PortMin: lo, PortMax: hi, FlowType: 2, TrafficRatio: 1, DefaultExpiryMode: "follow_user", MaxNodesPerUser: 3, DefaultMaxTotalConnections: LandingDefaultNodeTotal, Protocols: `["ss2022","vless_reality_vision"]`, RealityDest: "www.lovelive-anime.jp:443", RealityServerNames: `["www.lovelive-anime.jp"]`, CoreMemoryMB: 256, CoreCPUPercent: 50, Status: "active", Revision: 1, CreatedTime: now, UpdatedTime: now, Vendor: NodeVendorMirror(&n)} // plan 318: rollback mirror
 		// Plan 139: the landing range leaves the node's rule range.
 		if err := applyNativeLandingRange(tx, &s, 0, 0, s.PortMin, s.PortMax); err != nil {
 			return err

@@ -231,6 +231,12 @@ type Node struct {
 	// Plan 154: 节点提示, an admin-written note shown as a ⚠ on the node card.
 	// Admins only: node/list strips it for other roles.
 	AdminNotice string `gorm:"column:admin_notice;type:varchar(512);not null;default:''" json:"-"`
+	// Plan 318: the VPS vendors of this node (comma list of vendor keys from
+	// 管理厂商, pick order, '' = 未设置) and the 「其他（列表里没有）」 name ('' =
+	// none). A native landing on the node blocks the union of their sites
+	// (内置「屏蔽本机厂商官网」). Admins only.
+	Vendors     string `gorm:"column:vendors;type:text;not null;default:''" json:"-"`
+	VendorOther string `gorm:"column:vendor_other;type:varchar(64);not null;default:''" json:"-"`
 }
 
 func (Node) TableName() string { return "node" }

@@ -8,7 +8,7 @@ import (
 
 func TestNodePanelIPFamilyAPI(t *testing.T) {
 	e := newFlowTestEnv(t)
-	body := map[string]interface{}{"name": "panel-family", "serverIpV4": "192.0.2.10", "panelIpFamily": "prefer_ipv4"}
+	body := map[string]interface{}{"name": "panel-family", "serverIpV4": "192.0.2.10", "panelIpFamily": "prefer_ipv4", "vendors": []string{"dmit"}}
 	if code, msg := redeployMutationRequest(t, e.h.nodeCreate, body); code != 0 {
 		t.Fatal(msg)
 	}

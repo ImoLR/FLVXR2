@@ -103,7 +103,7 @@ func TestTunnelSavePreservesAutomaticConnectIPType(t *testing.T) {
 
 func TestNodeEgressAPIPersistence(t *testing.T) {
 	e := newFlowTestEnv(t)
-	body := map[string]interface{}{"name": "egress-node", "serverIpV6": "2001:db8::1", "egressIpFamily": "dual"}
+	body := map[string]interface{}{"name": "egress-node", "serverIpV6": "2001:db8::1", "egressIpFamily": "dual", "vendors": []string{"dmit"}}
 	if code, msg := redeployMutationRequest(t, e.h.nodeCreate, body); code != 0 {
 		t.Fatalf("create: %s", msg)
 	}

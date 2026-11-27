@@ -625,7 +625,8 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 		// client never resets it) and 「同时应用到现有 N 个节点」.
 		DefaultMaxTotalConnections *int `json:"defaultMaxTotalConnections"`
 		ApplyNodeTotalToNodes      bool `json:"applyNodeTotalToNodes"`
-		// Plan 316 VPS 厂商, shadowed (absent = keep).
+		// Plan 316 VPS 厂商, shadowed (absent = keep). Plan 318: shares only; a
+		// native server follows its node (ignored here, stale clients send it).
 		Vendor *string `json:"vendor"`
 	}
 	if err := landingDecode(r, &req); err != nil {
@@ -636,6 +637,9 @@ func (h *Handler) landingServerSave(w http.ResponseWriter, r *http.Request) {
 	if err != nil || old == nil {
 		landingError(w, errors.New("落地服务器不存在"))
 		return
+	}
+	if old.Source != "shared" {
+		req.Vendor = nil
 	}
 	if req.Vendor != nil && strings.TrimSpace(*req.Vendor) != "" {
 		vs, err := h.repo.GetLandingVendorSettings()

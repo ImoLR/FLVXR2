@@ -399,9 +399,13 @@ type LandingEgressData struct {
 	// Plan 316 「屏蔽本机厂商官网」: VendorInfo = the server's vendor (nil =
 	// 未设置 / unknown key), Vendor = the same when the global switch is on
 	// (what the compiler uses), VendorOn = the global switch.
+	// Plan 318: on a native server VendorInfo is its node's vendors combined
+	// (「A、B」, union of the names); VendorPick is that node's pick (其他 =
+	// VendorPick.Other, never part of the rule).
 	VendorInfo *landingegress.Vendor
 	Vendor     *landingegress.Vendor
 	VendorOn   bool
+	VendorPick NodeVendorPick
 }
 
 // LandingEgressActions lists every action a server's plan can reference:
@@ -441,8 +445,9 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 	}
 	if d.Server.Source == "native" {
 		var n model.Node
-		if err := r.db.Select("id", "landing_egress", "landing_chain", "landing_guard", "landing_vless_enc", "landing_anytls").First(&n, d.Server.NodeID).Error; err == nil {
+		if err := r.db.Select("id", "landing_egress", "landing_chain", "landing_guard", "landing_vless_enc", "landing_anytls", "vendors", "vendor_other").First(&n, d.Server.NodeID).Error; err == nil {
 			d.NodeEgress, d.NodeGuard, d.NodeProtocols = n.LandingEgress, n.LandingGuard, NodeLandingProtocols(&n)
+			d.VendorPick = NodeVendorPickOf(&n)
 			if n.LandingChain >= 1 {
 				// Exactly the copies the desired state carries (syncLandingServer).
 				copies, err := r.ChainCopiesForServer(serverID)
@@ -467,10 +472,21 @@ func (r *Repository) LandingEgressData(serverID int64) (*LandingEgressData, erro
 		return nil, err
 	}
 	d.VendorOn = vs.On
-	if v, ok := landingegress.FindVendor(vs.Vendors, d.Server.Vendor); ok {
-		d.VendorInfo = &v
+	var vendor landingegress.Vendor
+	var vendorOK bool
+	if d.Server.Source == "native" {
+		// Plan 318: the node's vendors (unknown keys skipped, 其他 ignored).
+		vendor, _, vendorOK = landingegress.CombineVendors(vs.Vendors, d.VendorPick.Keys)
+		if vendorOK && len(vendor.Domains) > landingegress.MaxRuleVendorDomains {
+			vendorOK = false // refused on save; never send a rule the agent rejects
+		}
+	} else {
+		vendor, vendorOK = landingegress.FindVendor(vs.Vendors, d.Server.Vendor)
+	}
+	if vendorOK {
+		d.VendorInfo = &vendor
 		if vs.On {
-			d.Vendor = &v
+			d.Vendor = &vendor
 		}
 	}
 	var chainIDs []int64
@@ -529,16 +545,19 @@ type LandingNativeNodeFacts struct {
 	LandingEgress  int
 	LandingGuard   int
 	EgressDetected string
+	// Plan 318: the node's name and VPS vendor pick (the rule follows it).
+	Name       string
+	VendorPick NodeVendorPick
 }
 
 // LandingNativeNodeFactsAll reads those columns for every node hosting a
 // native landing in one query.
 func (r *Repository) LandingNativeNodeFactsAll() (map[int64]LandingNativeNodeFacts, error) {
 	var rows []model.Node
-	err := r.db.Model(&model.Node{}).Select("node.id", "node.landing_egress", "node.landing_guard", "node.egress_detected").Joins("JOIN landing_server ON landing_server.node_id = node.id AND landing_server.source = 'native'").Find(&rows).Error
+	err := r.db.Model(&model.Node{}).Select("node.id", "node.landing_egress", "node.landing_guard", "node.egress_detected", "node.name", "node.vendors", "node.vendor_other").Joins("JOIN landing_server ON landing_server.node_id = node.id AND landing_server.source = 'native'").Find(&rows).Error
 	out := make(map[int64]LandingNativeNodeFacts, len(rows))
 	for _, n := range rows {
-		out[n.ID] = LandingNativeNodeFacts{LandingEgress: n.LandingEgress, LandingGuard: n.LandingGuard, EgressDetected: n.EgressDetected}
+		out[n.ID] = LandingNativeNodeFacts{LandingEgress: n.LandingEgress, LandingGuard: n.LandingGuard, EgressDetected: n.EgressDetected, Name: n.Name, VendorPick: NodeVendorPickOf(&n)}
 	}
 	return out, err
 }
