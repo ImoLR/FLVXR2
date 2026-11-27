@@ -2,7 +2,7 @@
 
 Base: fork.177 release branch `maintenance/3.0.27-fork.177-snell-vendor` @ 325004c2.
 Branch: `feature/3.0.27-321-entry-labels-linemon-user` (worktree `/root/projects/flvxx/flvxx-321`).
-BUILD + screenshots only — no release, prod read-only. Gallery: http://104.145.236.29:8791/plan-321/.
+Built + screenshots (gallery http://104.145.236.29:8791/plan-321/); **released as fork.178 on 2026-11-28 06:39 TW (plan 322)**.
 Work dir: `/root/flvx-workers/runs/plan-321/work` (lab scripts, prod-copy logs, reconcile script).
 
 ## A. Grant removal leaves the entry + names behind
@@ -106,10 +106,12 @@ bool default false); fork.177 runs unchanged on the migrated DB (rehearsed).
    is never reused; a user who regains access gets a new name). Deleted server rows are not
    restored by the rollback (only by `--restore-db`).
 
-## Open questions (for the user)
+## Open questions (for the user) — answered 2026-11-28 ~06:30 TW: all three approved as built; all 3 prod charts stay visible to users
 - Grant **expiry / 停用** keeps the names and the row (the grant is renewable); only deleting the
   grant (or the tunnel / group membership) removes them. OK?
 - A deleted per-server row loses its period usage and any per-server override; re-granting the
   same node later starts that row from 0 (only when access was fully gone in between).
 - 线路监测 default = every chart visible to all normal users (chart names, line labels and node
   names are shown; no IPs / domains / ports).
+
+- [x] released: fork.178 (plan 322), cleanup on prod 06:40:49–06:40:51 TW = exactly the 4 rows of the dry run
