@@ -85,8 +85,8 @@ export function entryLabelText(label?: EntryLabel | null): string {
 }
 
 /** Under a forward's entry address: the tag of each tagged address — with
- * the host's first label when there are several (「atsks7i 电信 IPv6 ·
- * fh82sge 联通 IPv6」); untagged (IPv4) addresses are left out. */
+ * the host's first label when there are several (「k3ct9xa 电信 IPv6 ·
+ * k3cu9xb 联通 IPv6」); untagged (IPv4) addresses are left out. */
 export function EntryLabelLine({
   addresses,
   labels,

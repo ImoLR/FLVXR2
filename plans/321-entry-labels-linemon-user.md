@@ -14,7 +14,7 @@ Work dir: `/root/flvx-workers/runs/entry-labels-linemon-user/work`.
   enters node 48 any more; his forward on 48 (created 01:22:24) was deleted 01:26:18.
 - Still there: `user_server_quota` row 7378212 (user 90, node 48, 44 856 B used)
   = the 「Leikwanhost 沪台IPLC」 row in 用户设置 → 服务器 (no role pill), and
-  `user_subdomain` 8 `atsks7i` (CT) + 9 `fh82sge` (CU), both `active`, CF CNAMEs live.
+  `user_subdomain` 8 (电信 name) + 9 (联通 name), both `active`, CF CNAMEs live (labels not written here: public repo).
 - Cause: plan 303 round 2 made names live "while the user exists and is not
   expired/disabled" — the "no longer on the node" rule of the original design
   was never implemented (`usersub.Desired` retires only on user/node deleted).

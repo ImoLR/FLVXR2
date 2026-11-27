@@ -33,8 +33,8 @@ func TestEntryLabels(t *testing.T) {
 		}
 	}
 	for _, n := range []model.UserSubdomain{
-		{UserID: 90, NodeID: 48, OriginNodeID: 48, Label: "atsks7i", Domain: "atsks7i.imgamer.top", State: "active"},
-		{UserID: 90, NodeID: 48, OriginNodeID: 48, Label: "fh82sge", Domain: "fh82sge.imgamer.top", State: "active", RecordDomain: "leikwan-hutai-cu.imgamer.top"},
+		{UserID: 90, NodeID: 48, OriginNodeID: 48, Label: "k3ct9xa", Domain: "k3ct9xa.imgamer.top", State: "active"},
+		{UserID: 90, NodeID: 48, OriginNodeID: 48, Label: "k3cu9xb", Domain: "k3cu9xb.imgamer.top", State: "active", RecordDomain: "leikwan-hutai-cu.imgamer.top"},
 		{UserID: 91, NodeID: 48, OriginNodeID: 48, Label: "oldname", Domain: "oldname.imgamer.top", State: "retired"},
 	} {
 		n := n
@@ -50,8 +50,8 @@ func TestEntryLabels(t *testing.T) {
 		"leikwan-hutai-ct.imgamer.top":  {Carrier: "电信", IPv6: true},
 		"LEIKWAN-HUTAI-CU.imgamer.top.": {Carrier: "联通", IPv6: true},
 		"[240e:b8f:b07:4004::2813]:443": {Carrier: "电信", IPv6: true},
-		"atsks7i.imgamer.top:24189":     {Carrier: "电信", IPv6: true}, // main record
-		"fh82sge.imgamer.top":           {Carrier: "联通", IPv6: true},
+		"k3ct9xa.imgamer.top:24189":     {Carrier: "电信", IPv6: true}, // main record
+		"k3cu9xb.imgamer.top":           {Carrier: "联通", IPv6: true},
 		"oldname.imgamer.top":           {},
 		"paid-v4.bgp1.leikwanhost.com":  {},
 		"bestvm-sg.imgamer.top":         {},
@@ -67,8 +67,8 @@ func TestEntryLabels(t *testing.T) {
 			t.Errorf("%s: got %+v want %+v", host, got, want)
 		}
 	}
-	list := x.ForList("atsks7i.imgamer.top:24189,fh82sge.imgamer.top:24189,paid-v4.bgp1.leikwanhost.com:24189")
-	if len(list) != 2 || list["atsks7i.imgamer.top"].Carrier != "电信" || list["fh82sge.imgamer.top"].Carrier != "联通" {
+	list := x.ForList("k3ct9xa.imgamer.top:24189,k3cu9xb.imgamer.top:24189,paid-v4.bgp1.leikwanhost.com:24189")
+	if len(list) != 2 || list["k3ct9xa.imgamer.top"].Carrier != "电信" || list["k3cu9xb.imgamer.top"].Carrier != "联通" {
 		t.Fatalf("ForList: %+v", list)
 	}
 	if x.ForList("45.32.10.39:1,paid-v4.bgp1.leikwanhost.com:2") != nil {
