@@ -1,9 +1,10 @@
 package repo
 
 // Plan 121 (contract landing-protocols-v1): AnyTLS / Snell / Mieru landing
-// nodes. Snell / Mieru exist only on mmwx-shared servers whose share
-// advertises the protocol (Share.ProtocolCaps); AnyTLS also runs on native
-// FLVX landings (plan 274, repository_landing_native_anytls.go).
+// nodes on mmwx-shared servers whose share advertises the protocol
+// (Share.ProtocolCaps). They also run on native FLVX landings: AnyTLS since
+// plan 274 (repository_landing_native_anytls.go), Snell / Mieru since plan 317
+// (repository_landing_native_snell_mieru.go).
 
 import (
 	"crypto/ecdsa"
@@ -55,9 +56,10 @@ func knownLandingProtocol(p string) bool {
 }
 
 // nativeLandingProtocol: protocols a native FLVX landing can run (plan 253
-// adds VLESS Encryption, plan 274 AnyTLS; Snell / Mieru stay shared-only).
+// adds VLESS Encryption, plan 274 AnyTLS, plan 317 Snell / Mieru = every
+// protocol a share offers).
 func nativeLandingProtocol(p string) bool {
-	return p == "ss2022" || p == "vless_reality_vision" || isVLESSEnc(p) || isAnyTLS(p)
+	return p == "ss2022" || p == "vless_reality_vision" || isVLESSEnc(p) || isAnyTLS(p) || isSnell(p) || isMieru(p)
 }
 
 // validLandingHostname accepts a DNS name (not an IP literal) for SNI / obfs.
@@ -178,7 +180,7 @@ func LandingWithheldAgentFunc(s *model.LandingServer, agent LandingAgentProtocol
 			return false
 		}
 		if s.Source != "shared" {
-			return !agent.nativeSends(n.Protocol) // Snell / Mieru: never valid on native servers
+			return !agent.nativeSends(n.Protocol) // below the agent's landing_<protocol>
 		}
 		if supported == nil {
 			supported = map[string]bool{}
@@ -225,8 +227,9 @@ func LandingProtocolName(p string) string {
 }
 
 // checkExtraProtocolCreate refuses a new node whose protocol or server
-// defaults the share does not support right now (native AnyTLS: plan 274,
-// checked by checkNativeAnyTLSCreate).
+// defaults the share does not support right now (native AnyTLS / Snell /
+// Mieru: plans 274 / 317, the agent is checked by checkNativeExtraCreate and
+// the server defaults by validateLandingProtocolDefaults on save).
 func checkExtraProtocolCreate(s *model.LandingServer, protocol string) error {
 	if !landingcustom.IsExtraProtocol(protocol) {
 		return nil
@@ -235,7 +238,13 @@ func checkExtraProtocolCreate(s *model.LandingServer, protocol string) error {
 		if isAnyTLS(protocol) {
 			return nil
 		}
-		return errors.New("Snell / Mieru 目前只支持妙妙屋共享服务器")
+		if isSnell(protocol) || isMieru(protocol) {
+			// Plan 317: the node copies the server's Snell / Mieru defaults;
+			// an invalid stored default would make the agent reject the
+			// server's whole desired state, so check them once more here.
+			return validateLandingProtocolDefaults(s)
+		}
+		return errors.New("该协议暂不支持自有落地")
 	}
 	cp, ok := SharedProtocolCap(s, protocol)
 	if !ok {

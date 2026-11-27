@@ -64,6 +64,8 @@ type SystemInfo struct {
 	LandingReality         int                       `json:"landing_reality,omitempty"`    // plan 227: RealityProbe + reality_pins
 	LandingVLESSEnc        int                       `json:"landing_vless_enc,omitempty"`  // plan 253: VLESS Encryption inbound + outbounds
 	LandingAnyTLS          int                       `json:"landing_anytls,omitempty"`     // plan 274: public AnyTLS landing inbound
+	LandingSnell           int                       `json:"landing_snell,omitempty"`      // plan 317: public Snell landing inbound
+	LandingMieru           int                       `json:"landing_mieru,omitempty"`      // plan 317: public Mieru landing inbound (TCP + UDP)
 	LeiKwan                *LeiKwanReport            `json:"leikwan,omitempty"`
 	LeiKwanHost            *LeiKwanHostReport        `json:"leikwanHost,omitempty"` // plan 269: only when due (≤ 1/min, ≥ every 5 min)
 	EgressIPFamily         string                    `json:"egress_ip_family,omitempty"`
@@ -1237,6 +1239,8 @@ func (w *WebSocketReporter) collectSystemInfo() SystemInfo {
 		LandingReality:         landing.RealityVersion,
 		LandingVLESSEnc:        landing.VLESSEncVersion,
 		LandingAnyTLS:          landing.AnyTLSVersion,
+		LandingSnell:           landing.SnellVersion,
+		LandingMieru:           landing.MieruVersion,
 		LeiKwan:                w.leikwan.result(),
 		LeiKwanHost:            w.lkHost.takeReport(),
 		EgressIPFamily:         w.egress.family(),

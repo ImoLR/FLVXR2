@@ -231,13 +231,23 @@ func (h *Handler) landingServerViewWith(s model.LandingServer, admin bool, catal
 	if vlessEncReason != "" {
 		v["vlessEncReason"] = vlessEncReason
 	}
-	// Plan 274: AnyTLS on a native server needs an agent that runs it (shared
-	// servers keep deciding from the share's caps).
+	// Plan 274 / 317: AnyTLS / Snell / Mieru on a native server need an agent
+	// that runs them (shared servers keep deciding from the share's caps).
 	if s.Source != "shared" {
 		ok := agent != nil && repo.NativeAnyTLSSupported(agent.LandingAnyTLS)
 		v["anytlsAvailable"] = ok
 		if !ok {
 			v["anytlsReason"] = repo.AnyTLSAgentReason
+		}
+		ok = agent != nil && repo.NativeSnellSupported(agent.LandingSnell)
+		v["snellAvailable"] = ok
+		if !ok {
+			v["snellReason"] = repo.SnellAgentReason
+		}
+		ok = agent != nil && repo.NativeMieruSupported(agent.LandingMieru)
+		v["mieruAvailable"] = ok
+		if !ok {
+			v["mieruReason"] = repo.MieruAgentReason
 		}
 	}
 	// Users only see the read-only summary, never profile internals.

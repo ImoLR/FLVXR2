@@ -131,7 +131,7 @@ func classifyInboundFailure(n Node, addErr error) (string, string) {
 	}
 	addr := net.JoinHostPort(listen, strconv.Itoa(n.Port))
 	networks := []string{"tcp"}
-	if n.Protocol == "ss2022" {
+	if udpProtocol(n.Protocol) {
 		networks = append(networks, "udp")
 	}
 	for _, network := range networks {

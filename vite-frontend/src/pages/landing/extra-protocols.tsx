@@ -4,7 +4,7 @@ import {
   MIERU_UDP_HINT,
   isMieruUdp,
   landingProtocolLabel,
-  nativeAnyTLSUnavailableReason,
+  nativeExtraUnavailableReason,
   sharedProtocolCap,
 } from "@/api/landing";
 import { Checkbox } from "@/shadcn-bridge/heroui/checkbox";
@@ -14,7 +14,8 @@ import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
 // Plan 121: AnyTLS / Snell / Mieru on 妙妙屋共享 servers. Hidden unless the
 // share advertises them (contract landing-protocols-v1) or one is already
 // enabled; defaults apply to nodes created afterwards. Plan 274: native
-// servers get the same box with AnyTLS only (their agent must run it).
+// servers get the same box with AnyTLS (their agent must run it); plan 317:
+// Snell / Mieru too, with the same settings rows.
 export function ExtraProtocolSettings({
   server,
   form,
@@ -25,17 +26,22 @@ export function ExtraProtocolSettings({
   set: <K extends keyof LandingServer>(key: K, value: LandingServer[K]) => void;
 }) {
   const shared = server.source === "shared";
-  const anytlsReason = shared ? "" : nativeAnyTLSUnavailableReason(server);
-  // usable: the share advertises it / the native agent runs it (AnyTLS only).
+  // Plan 317: on a native server each extra protocol needs its agent.
+  const nativeReason = (protocol: string) =>
+    shared ? "" : nativeExtraUnavailableReason(server, protocol);
+  // usable: the share advertises it / the native agent runs it.
   const usable = (protocol: string) =>
     shared
       ? Boolean(sharedProtocolCap(server, protocol))
-      : protocol === "anytls" && !anytlsReason;
+      : !nativeReason(protocol);
   const extras = LANDING_EXTRA_PROTOCOLS.filter((protocol) =>
-    shared
-      ? usable(protocol) || form.protocols.includes(protocol)
-      : protocol === "anytls",
+    shared ? usable(protocol) || form.protocols.includes(protocol) : true,
   );
+
+  // Native protocols the agent cannot run yet: one line (same cause).
+  const nativeBlocked = shared
+    ? []
+    : extras.filter((protocol) => Boolean(nativeReason(protocol)));
 
   if (!extras.length) return null;
   const snell = sharedProtocolCap(server, "snell");
@@ -57,7 +63,7 @@ export function ExtraProtocolSettings({
         <p className="text-xs text-default-500">
           {shared
             ? "运行在 FLVX 独立的 Core 中，用户、连接数、在线 IP、流量和整机保护都由 FLVX 管理，不影响妙妙屋官方已有的入站。"
-            : "和 SS2022 / Reality 节点运行在同一个落地 Core 中，连接数、在线 IP、流量和整机保护照常生效。线路机可用，屏蔽 TLS 的隧道不可用。"}
+            : "和 SS2022 / Reality 节点运行在同一个落地 Core 中，连接数、在线 IP、流量和整机保护照常生效。AnyTLS 线路机可用，屏蔽 TLS 的隧道不可用；Snell / Mieru 不能用于线路机。"}
         </p>
       </div>
       <div className="flex flex-wrap gap-4">
@@ -85,26 +91,30 @@ export function ExtraProtocolSettings({
           );
         })}
       </div>
-      {extras
-        .filter(
-          (protocol) =>
-            (shared && form.protocols.includes(protocol) && !usable(protocol)) ||
-            (!shared && Boolean(anytlsReason)),
-        )
-        .map((protocol) => (
-          <p
-            key={protocol}
-            className="rounded-lg bg-warning-50 p-2 text-xs text-warning"
-          >
-            {shared
-              ? `妙妙屋端暂不支持 ${landingProtocolLabel(protocol)}（该服务器 Helper 需升级）：已有节点暂停下发，端口和凭据保留，恢复后自动重新下发。`
-              : `AnyTLS 暂不可用：${anytlsReason}${
-                  form.protocols.includes(protocol)
-                    ? "（已有节点暂停下发，端口和凭据保留）"
-                    : ""
-                }`}
-          </p>
-        ))}
+      {shared &&
+        extras
+          .filter(
+            (protocol) =>
+              form.protocols.includes(protocol) && !usable(protocol),
+          )
+          .map((protocol) => (
+            <p
+              key={protocol}
+              className="rounded-lg bg-warning-50 p-2 text-xs text-warning"
+            >
+              {`妙妙屋端暂不支持 ${landingProtocolLabel(protocol)}（该服务器 Helper 需升级）：已有节点暂停下发，端口和凭据保留，恢复后自动重新下发。`}
+            </p>
+          ))}
+      {!shared && nativeBlocked.length > 0 && (
+        <p className="rounded-lg bg-warning-50 p-2 text-xs text-warning">
+          {nativeBlocked.length === 1
+            ? `${landingProtocolLabel(nativeBlocked[0])} 暂不可用：${nativeReason(nativeBlocked[0])}`
+            : `${nativeBlocked.map(landingProtocolLabel).join(" / ")} 暂不可用：该服务器的节点程序版本过低，升级后才能使用`}
+          {nativeBlocked.some((protocol) => form.protocols.includes(protocol))
+            ? "（已有节点暂停下发，端口和凭据保留）"
+            : ""}
+        </p>
+      )}
       {form.protocols.includes("anytls") && (
         <Input
           description={

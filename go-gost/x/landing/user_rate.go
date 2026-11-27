@@ -201,8 +201,8 @@ func (w rateWant) ports() int {
 }
 
 // rateWant derives the kernel state from the desired state: the public
-// (non-loopback) enabled nodes of each rated user; SS2022 serves TCP and UDP,
-// VLESS Reality TCP only (as Desired.publicPorts).
+// (non-loopback) enabled nodes of each rated user; SS2022 and Mieru serve TCP
+// and UDP, the others TCP only (as Desired.publicPorts).
 func (d Desired) rateWant() rateWant {
 	if !d.Enabled || d.UserRates == nil {
 		return rateWant{}
@@ -223,7 +223,7 @@ func (d Desired) rateWant() rateWant {
 			byGroup[n.RateGroup] = g
 		}
 		g.tcp = append(g.tcp, uint16(n.Port))
-		if n.Protocol == "ss2022" {
+		if udpProtocol(n.Protocol) {
 			g.udp = append(g.udp, uint16(n.Port))
 		}
 	}

@@ -247,10 +247,10 @@ func validateLandingServer(s *model.LandingServer, keep map[string]bool) error {
 			return errors.New("协议模板无效")
 		}
 		// Plan 121: the extra protocols need the shared Core of a capable share
-		// (plan 253: VLESS Encryption, plan 274: AnyTLS also run on native
-		// landings).
+		// (plan 253: VLESS Encryption, plan 274: AnyTLS, plan 317: Snell /
+		// Mieru also run on native landings).
 		if s.Source != "shared" && !nativeLandingProtocol(p) {
-			return errors.New("Snell / Mieru 目前只支持妙妙屋共享服务器")
+			return errors.New("该协议暂不支持自有落地")
 		}
 	}
 	if err := validateLandingProtocolDefaults(s); err != nil {
@@ -342,16 +342,17 @@ func (r *Repository) SaveLandingServerOpts(s *model.LandingServer, groups []int6
 		if err := validateLandingServer(s, keep); err != nil {
 			return err
 		}
-		// Plan 253 / 274: switching VLESS Encryption or AnyTLS on for a native
-		// server needs an agent that runs it (an enabled one stays on across an
-		// agent downgrade; its nodes are withheld from that agent).
+		// Plan 253 / 274 / 317: switching VLESS Encryption, AnyTLS, Snell or
+		// Mieru on for a native server needs an agent that runs it (an enabled
+		// one stays on across an agent downgrade; its nodes are withheld from
+		// that agent).
 		if s.Source == "native" {
-			for _, p := range []string{landingcustom.ProtocolVLESSEnc, landingcustom.ProtocolAnyTLS} {
+			for _, p := range []string{landingcustom.ProtocolVLESSEnc, landingcustom.ProtocolAnyTLS, landingcustom.ProtocolSnell, landingcustom.ProtocolMieru} {
 				if keep[p] || !landingServerHasProtocol(s, p) {
 					continue
 				}
 				var native model.Node
-				if err := tx.Select("id", "landing_vless_enc", "landing_anytls").First(&native, s.NodeID).Error; err != nil {
+				if err := tx.Select(append([]string{"id"}, landingAgentProtocolColumns...)).First(&native, s.NodeID).Error; err != nil {
 					return errors.New(nativeProtocolAgentReason(p, LandingAgentProtocols{}) + "，暂不能启用")
 				}
 				if reason := nativeProtocolAgentReason(p, NodeLandingProtocols(&native)); reason != "" {
@@ -832,7 +833,7 @@ func (r *Repository) createLandingNode(userID, serverID int64, name, protocol st
 		if err := checkExtraProtocolCreate(&s, protocol); err != nil {
 			return err
 		}
-		if err := checkNativeAnyTLSCreate(&s, protocol, agentCaps); err != nil {
+		if err := checkNativeExtraCreate(&s, protocol, agentCaps); err != nil {
 			return err
 		}
 		if isVLESSEnc(protocol) {

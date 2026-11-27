@@ -42,8 +42,9 @@ var landingAdminServerKeysNative = []string{"anytlsServerName", "availableUntil"
 var landingAdminServerKeysShared = append([]string{"busyPortCount", "shareMaxConnections", "sharedAvailable", "sharedCaps", "sharedNotice"}, landingAdminServerKeysNative...)
 
 // Plan 274: native servers also say whether their agent runs AnyTLS (the
-// fixture's agent does not, so the reason is there too).
-var landingAdminServerKeysNativeOnly = append([]string{"anytlsAvailable", "anytlsReason"}, landingAdminServerKeysNative...)
+// fixture's agent does not, so the reason is there too); plan 317: Snell and
+// Mieru the same way.
+var landingAdminServerKeysNativeOnly = append([]string{"anytlsAvailable", "anytlsReason", "mieruAvailable", "mieruReason", "snellAvailable", "snellReason"}, landingAdminServerKeysNative...)
 
 // Plan 132: a non-admin's server list shows only the caller's own node count
 // and how many more they can create (both caps, counted like node creation);

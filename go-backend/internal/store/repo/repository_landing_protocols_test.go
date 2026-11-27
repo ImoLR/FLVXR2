@@ -260,10 +260,12 @@ func TestNativeLandingRefusesExtraProtocols(t *testing.T) {
 	if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), AnyTLSAgentReason) {
 		t.Fatalf("native accepted anytls on an old agent: %v", err)
 	}
-	for _, p := range []string{"snell", "mieru"} {
-		x.Protocols = `["ss2022","` + p + `"]`
-		if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), "妙妙屋共享") {
-			t.Fatalf("native accepted %s: %v", p, err)
+	// Plan 317: Snell / Mieru run natively too, but only on an agent that
+	// reports landing_snell / landing_mieru (this fixture's does not).
+	for _, tc := range []struct{ p, reason string }{{"snell", SnellAgentReason}, {"mieru", MieruAgentReason}} {
+		x.Protocols = `["ss2022","` + tc.p + `"]`
+		if err := r.SaveLandingServer(&x, []int64{701}); err == nil || !strings.Contains(err.Error(), tc.reason) {
+			t.Fatalf("native accepted %s on an old agent: %v", tc.p, err)
 		}
 	}
 	if _, err := r.CreateLandingNode(501, s.ID, "x", "mieru", false); err == nil {
