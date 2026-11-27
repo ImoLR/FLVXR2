@@ -67,7 +67,11 @@ screenshots → user approval → separate release task.
 - [x] go vet + go test SQLite + PG, npm run build
 - [x] Prod-DB copy: migrate + backfill + render before/after diff, 158 byte-identical, rollback (fork.176 on migrated copy)
 - [x] Screenshots gallery (desktop + 390 px, light + dark)
-- [ ] Push branch, CI Build Check green, ledger row (等用户看截图), memory, summary
+- [x] Push branch, CI Build Check green, ledger row (等用户看截图), memory, summary
+  (CI 45978524241 green on 7213e219; ledger row 318 in 待发布; summary runs/vendor-node-pick/summary.md)
+- [ ] Release (separate task after the user approves the screenshots; note: merging with plan 317 has 2 small
+  conflicts — `repository_landing_egress.go` node column Select, `landing_user_view_contract_test.go` admin key
+  list — keep both sides)
 
 ## Evidence (build, 11-27)
 
