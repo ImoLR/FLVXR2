@@ -458,6 +458,8 @@ export interface LandingLink {
   surge?: string;
   /** plan 193: why a Snell node has no Surge line (v4/v5 + TLS obfs) */
   surgeNote?: string;
+  /** plan 321: 电信 / 联通 / IPv6 of the link's entry address */
+  entryLabel?: { carrier?: string; ipv6?: boolean };
 }
 export interface ServerQuota {
   serverKind: "node" | "landing";
@@ -535,6 +537,18 @@ export interface LandingUserSetting {
   relatedServers?: RelatedServer[];
   /** Plan 159: the user's 默认速率 (Mbps, 0 = 不限; absent = older panel). */
   serverRateMbps?: number;
+  /** Plan 321: "node:<id>" → the grants whose tunnel uses that node (where
+   * the row comes from; absent = none / older panel). */
+  serverGrants?: Record<
+    string,
+    {
+      userTunnelId: number;
+      tunnelId: number;
+      tunnelName: string;
+      status: number;
+      entry: boolean;
+    }[]
+  >;
 }
 export const landingServers = (userId?: number) =>
   Network.post<LandingServer[]>(

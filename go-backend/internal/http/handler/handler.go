@@ -1013,7 +1013,6 @@ func (h *Handler) tunnelList(w http.ResponseWriter, r *http.Request) {
 	}
 	h.attachBestPathStatesOrLog(items)
 	h.attachWarmPoolStates(items)
-	h.attachTunnelEntryLabels(items) // plan 321
 	response.WriteJSON(w, response.OK(items))
 }
 

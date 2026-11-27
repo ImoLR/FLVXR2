@@ -3,6 +3,8 @@ package handler
 import (
 	"database/sql"
 	"log"
+	"net/url"
+	"strings"
 
 	"go-backend/internal/store/repo"
 )
@@ -56,7 +58,16 @@ func (h *Handler) attachEntryLabels(items []map[string]interface{}, src, dst str
 	}
 }
 
-// attachTunnelEntryLabels: the admin tunnel list (监听IP picker, tunnel rows).
-func (h *Handler) attachTunnelEntryLabels(items []map[string]interface{}) {
-	h.attachEntryLabels(items, "inIp", "inIpLabels")
+// linkURLHost: the server host of a share link (vless:// trojan:// ss://
+// anytls:// hysteria2:// tuic:// …; "" for vmess:// base64 and bad links).
+func linkURLHost(link string) string {
+	link = strings.TrimSpace(link)
+	if link == "" || strings.HasPrefix(strings.ToLower(link), "vmess://") {
+		return ""
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

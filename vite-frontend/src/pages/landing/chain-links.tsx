@@ -1,3 +1,5 @@
+import type { EntryLabelMap } from "@/components/entry-label";
+
 import { useState } from "react";
 import toast from "react-hot-toast";
 
@@ -33,6 +35,8 @@ interface ChainRow {
   lineComplianceAck?: boolean;
   /** Plan 284: the forward's target is one of the owner's 外部节点. */
   externalNode?: ForwardExternalInfo;
+  /** Plan 321: host → 电信 / 联通 / IPv6 of the entry addresses. */
+  entryLabels?: EntryLabelMap;
 }
 
 // Plan 284: 「外部节点 · 协议」 tag of a port forward to the user's own node
@@ -272,6 +276,7 @@ export function ChainLinkButton({
             {links.map((link, index) => (
               <LandingLinkCard
                 key={`${link.kind}-${index}`}
+                entryLabels={forward.entryLabels}
                 link={link}
                 qrOpen={qr === link.url}
                 onToggleQR={() => setQR(qr === link.url ? "" : link.url)}

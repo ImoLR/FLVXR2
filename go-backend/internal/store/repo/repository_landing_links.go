@@ -29,6 +29,9 @@ type LandingLink struct {
 	// Blocked (plan 224): the rule's tunnel blocks a protocol feature of the
 	// node, so this 经规则转发 link cannot connect.
 	Blocked string `json:"blocked,omitempty"`
+	// EntryLabel (plan 321): 电信 / 联通 / IPv6 of the link's entry address
+	// (set by the handler; display only, the link itself is unchanged).
+	EntryLabel *EntryLabel `json:"entryLabel,omitempty"`
 }
 
 // LandingSS2022Password is the client password of an SS2022 node: "server

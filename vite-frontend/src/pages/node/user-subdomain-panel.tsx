@@ -28,6 +28,7 @@ import {
   repointUserSubdomain,
   syncUserSubdomains,
 } from "@/api/user-subdomain";
+import { EntryLabelPills } from "@/components/entry-label";
 import { AttentionIcon } from "@/pages/landing/admin-attention";
 import { landingToneClass } from "@/pages/landing/pill";
 import { Button } from "@/shadcn-bridge/heroui/button";
@@ -178,14 +179,21 @@ function UsesButton({
   onToggle: () => void;
 }) {
   const n = item.forwards.length;
+  // Plan 321: the grants the name comes from count too (no grant, forward
+  // or landing left = the name retires).
+  const g = item.grants?.length || 0;
   const text =
-    n + item.landings === 0
+    n + item.landings + g === 0
       ? "暂无转发"
-      : [n ? `${n} 条转发` : "", item.landings ? `${item.landings} 个落地` : ""]
+      : [
+          n ? `${n} 条转发` : "",
+          item.landings ? `${item.landings} 个落地` : "",
+          g ? `${g} 个授权` : "",
+        ]
           .filter(Boolean)
           .join(" · ");
 
-  if (n === 0) {
+  if (n === 0 && g === 0) {
     return <span className="pl-5 text-xs text-default-500">{text}</span>;
   }
 
@@ -217,6 +225,49 @@ function ForwardList({ item }: { item: UserSubItem }) {
       ))}
     </div>
   );
+}
+
+/** Plan 321: the grants (授权) whose tunnel enters on the name's node. */
+function GrantList({ item }: { item: UserSubItem }) {
+  if (!item.grants?.length) return null;
+
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1.5"
+      data-user-sub-grants={item.id}
+    >
+      <span className="text-[11px] text-default-500">授权</span>
+      {item.grants.map((g) => (
+        <span
+          key={g.userTunnelId}
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${landingToneClass.purple}`}
+          title={`授权 #${g.userTunnelId} · 隧道 #${g.tunnelId}`}
+        >
+          <span className="max-w-[14rem] truncate">{g.tunnelName}</span>
+          {g.status !== 1 ? (
+            <span className="text-[10px] opacity-80">已停用</span>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Plan 321: the record chip (电信 / 联通, plan 305) + 「IPv6」; on a node
+ * with one record, the record's tags alone. */
+function EntryTagChips({ item }: { item: UserSubItem }) {
+  if (item.recordLabel) {
+    return (
+      <>
+        <RecordChip item={item} />
+        {item.entryLabel?.ipv6 ? (
+          <EntryLabelPills label={{ ipv6: true }} />
+        ) : null}
+      </>
+    );
+  }
+
+  return <EntryLabelPills label={item.entryLabel} />;
 }
 
 /** Plan 305: 「保持原地址」 — the forward keeps the node address (admin only). */
@@ -320,7 +371,7 @@ function NameLine({
         >
           {item.domain}
         </span>
-        <RecordChip item={item} />
+        <EntryTagChips item={item} />
         <StateChip item={item} />
         <span className="flex w-36 min-w-0 shrink-0 items-center text-xs">
           <PointsTo item={item} mode={mode} />
@@ -341,8 +392,9 @@ function NameLine({
         <ActionPills actions={actions} item={item} />
       </div>
       {open ? (
-        <div className="pb-1 pl-1 pt-1.5">
-          <ForwardList item={item} />
+        <div className="space-y-1.5 pb-1 pl-1 pt-1.5">
+          <GrantList item={item} />
+          {item.forwards.length ? <ForwardList item={item} /> : null}
         </div>
       ) : null}
     </div>
@@ -381,7 +433,7 @@ function NameRowH5({
           <span className="shrink-0 font-mono text-xs font-normal text-default-500">
             {item.label}
           </span>
-          <RecordChip item={item} />
+          <EntryTagChips item={item} />
         </span>
       }
       nameTitle={`${lead} · ${item.domain}`}
@@ -406,6 +458,11 @@ function NameRowH5({
       <ExpandField label="转发">
         {item.forwards.length ? <ForwardList item={item} /> : "暂无转发"}
       </ExpandField>
+      {item.grants?.length ? (
+        <ExpandField label="来自">
+          <GrantList item={item} />
+        </ExpandField>
+      ) : null}
       <ExpandField label="同步">
         {item.lastError ? (
           <span className="text-danger">{item.lastError}</span>

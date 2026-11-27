@@ -22,6 +22,7 @@ import {
   PhoneSetupPanel,
 } from "@/pages/leikwan/panel/phone-setup";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { EntryLabelPills } from "@/components/entry-label";
 import { setPhoneEntry } from "@/utils/app-bridge";
 
 // Plan 315 (user 11-26): in the im.gamer App, 授权 opens with 「我的入口」 —
@@ -165,7 +166,11 @@ export function MyEntryCard({
                 endContent={<Pill tone={w.tone}>{w.text}</Pill>}
                 textValue={e.name}
               >
-                {e.name}
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{e.name}</span>
+                  {/* Plan 321: 电信 / 联通 / IPv6 of the entry */}
+                  <EntryLabelPills label={e.entryLabel} />
+                </span>
               </SelectItem>
             );
           }),

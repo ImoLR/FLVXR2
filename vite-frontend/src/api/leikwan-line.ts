@@ -65,6 +65,8 @@ export interface LeiKwanEntryNode {
   leikwanForwards: number;
   /** Plan 295: when the node went 离线 (ms; absent = online). */
   offlineSince?: number;
+  /** Plan 321: 电信 / 联通 / IPv6 of the entry's address (absent = none). */
+  entryLabel?: { carrier?: string; ipv6?: boolean };
 }
 
 /** Plan 295: what one 利群入口 can run (its learned profile files). */
@@ -360,6 +362,8 @@ export interface LeiKwanRule {
     // Plan 295: the owner's 主入口 在线 / 离线.
     online?: boolean;
     offlineSince?: number;
+    // Plan 321: 电信 / 联通 / IPv6 of the entry address.
+    entryLabel?: { carrier?: string; ipv6?: boolean };
   };
   // Plan 295 (admin only): what the owner's 主入口 cannot run for this rule.
   entryLimits?: LeiKwanEntryLimit[];

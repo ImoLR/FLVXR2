@@ -62,6 +62,7 @@ import {
   subUpdate,
 } from "@/api/sub-link";
 import { SubEntryBadge } from "@/pages/sub-link/entry-badge";
+import { type EntryLabel, EntryLabelPills } from "@/components/entry-label";
 import { isAdmin } from "@/utils/auth";
 import { isAppMode } from "@/utils/app-bridge";
 
@@ -226,12 +227,15 @@ function SelectedRow({
   onRemove,
   h5,
   shownName,
+  entryLabel,
 }: {
   item: SubSelected;
   onRemove: () => void;
   h5?: { open: boolean; onToggle: () => void; detail?: string };
   /** Plan 315: the name the client shows (fixed names) */
   shownName?: string;
+  /** Plan 321: 电信 / 联通 / IPv6 of the entry (from the pool). */
+  entryLabel?: EntryLabel;
 }) {
   const {
     setNodeRef,
@@ -314,6 +318,7 @@ function SelectedRow({
             {h5.detail && (
               <ExpandField label={item.group === "rule" ? "入口" : "地址"}>
                 {h5.detail}
+                <EntryLabelPills className="ml-1.5" label={entryLabel} />
               </ExpandField>
             )}
           </>
@@ -382,6 +387,9 @@ function SelectedRow({
               : lkAll
                 ? leikwanAllNote(item.count)
                 : protocolText(item)}
+          {!item.missing && !all && !lkAll && (
+            <EntryLabelPills className="ml-1.5" label={entryLabel} />
+          )}
         </div>
       </div>
       {!item.missing && (
@@ -532,6 +540,15 @@ export function SubEditor({
       ])
         m.set(n.key, n.detail);
     }
+
+    return m;
+  }, [pool]);
+  // Plan 321: entry tags by pool key (pool rows and the selected list).
+  const poolEntryLabel = useMemo(() => {
+    const m = new Map<string, EntryLabel>();
+
+    for (const n of pool?.rules || [])
+      if (n.entryLabel) m.set(n.key, n.entryLabel);
 
     return m;
   }, [pool]);
@@ -1036,6 +1053,10 @@ export function SubEditor({
                         </span>
                       )}
                       <span className="block truncate text-xs text-default-500">
+                        <EntryLabelPills
+                          className="mr-1.5"
+                          label={n.entryLabel}
+                        />
                         {detail}
                       </span>
                     </span>
@@ -1050,6 +1071,10 @@ export function SubEditor({
                       <div className="truncate text-sm">
                         {n.name}
                         <ExternalForwardTag n={n} />
+                        <EntryLabelPills
+                          className="ml-1.5"
+                          label={n.entryLabel}
+                        />
                       </div>
                       <div className="truncate text-xs text-default-500">
                         {detail}
@@ -1143,6 +1168,7 @@ export function SubEditor({
               {selected.map((s) => (
                 <SelectedRow
                   key={s.key}
+                  entryLabel={poolEntryLabel.get(s.key)}
                   h5={
                     isH5
                       ? {

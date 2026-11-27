@@ -7,6 +7,12 @@ import { Pill } from "./pill";
 
 import { Button } from "@/shadcn-bridge/heroui/button";
 import { OfflineQRCode } from "@/components/qr-code";
+import {
+  type EntryLabel,
+  type EntryLabelMap,
+  EntryLabelPills,
+  entryLabelOf,
+} from "@/components/entry-label";
 
 // Plan 175: one link card for the 落地 page 「节点链接」 dialog and the rules
 // page 「复制链接」 dialog (tinted 直连 / 经规则转发 pill, name, mono address,
@@ -92,6 +98,8 @@ export interface LinkCardLink {
   /** plan 272 (leikwan): the rule's name and its entry address */
   ruleName?: string;
   address?: string;
+  /** Plan 321: 电信 / 联通 / IPv6 of the link's entry address. */
+  entryLabel?: EntryLabel;
   clash?: string;
   surge?: string;
   /** plan 193: why a Snell node has no Surge line */
@@ -105,17 +113,24 @@ export function LandingLinkCard({
   qrOpen,
   onToggleQR,
   children,
+  entryLabels,
 }: {
   link: LinkCardLink;
   qrOpen: boolean;
   onToggleQR: () => void;
   /** Protocol notes shown between the QR code and the client configs. */
   children?: ReactNode;
+  /** Plan 321: host → 电信 / 联通 / IPv6 (the forward row's entryLabels). */
+  entryLabels?: EntryLabelMap;
 }) {
   const direct = link.kind === "direct";
   // Plan 272: a 利群汇聚 rule's link (violet pill + its entry address).
   const leikwan = link.kind === "leikwan";
   const address = (leikwan && link.address) || linkAddress(link.url);
+  // Plan 321: several entries of one node look alike — tag each one.
+  const entryLabel =
+    link.entryLabel ||
+    (address ? entryLabelOf(entryLabels, address) : undefined);
 
   return (
     <div
@@ -134,6 +149,7 @@ export function LandingLinkCard({
             {address}
           </span>
         )}
+        <EntryLabelPills label={entryLabel} />
       </h3>
       {leikwan && link.ruleName && (
         <p className="text-xs text-default-500">利群转发「{link.ruleName}」</p>

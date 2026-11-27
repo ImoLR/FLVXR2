@@ -1053,6 +1053,16 @@ func (h *Handler) landingNodeLinks(w http.ResponseWriter, r *http.Request) {
 		landingError(w, err)
 		return
 	}
+	// Plan 321: the entry tag of each link (several entries look alike).
+	if len(links) > 1 {
+		labels := h.loadEntryLabels()
+		for i := range links {
+			if l, ok := labels.Of(linkURLHost(links[i].URL)); ok && !l.Empty() {
+				lc := l
+				links[i].EntryLabel = &lc
+			}
+		}
+	}
 	// Plan 272: the owner's 利群 rules landing here (normal node links).
 	extra := h.leiKwanLandingLinks(*n)
 	if len(extra) == 0 {

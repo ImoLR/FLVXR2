@@ -1,3 +1,5 @@
+import type { EntryLabel } from "@/components/entry-label";
+
 import Network from "./network";
 
 // 用户专属域名 (plan 303): one private CNAME per user per entry node, pointing
@@ -40,7 +42,7 @@ export interface UserSubItem {
   label: string;
   domain: string;
   state: UserSubState;
-  /** paused: expired | disabled | unused | node; retired: user_deleted | node_deleted | unused | renamed | admin */
+  /** paused: expired | disabled | unused | node; retired: user_deleted | node_deleted | unused | renamed | admin | no_access */
   reason: string;
   status: UserSubSync;
   lastError: string;
@@ -67,6 +69,22 @@ export interface UserSubItem {
   recordDomain?: string;
   recordLabel?: string;
   targetDomain?: string;
+  /** Plan 321: the grants whose tunnel enters on the name's node (where the
+   * name comes from; none + no forward / landing = it retires). */
+  grants?: UserNodeGrant[];
+  /** Plan 321: 电信 / 联通 / IPv6 of the record the name points at. */
+  entryLabel?: EntryLabel;
+}
+
+/** Plan 321: one grant (user_tunnel) whose tunnel uses a node. */
+export interface UserNodeGrant {
+  userTunnelId: number;
+  tunnelId: number;
+  tunnelName: string;
+  /** user_tunnel.status: 1 = 正常, else 停用 */
+  status: number;
+  /** the node is one of the tunnel's entries (else a relay / exit hop) */
+  entry: boolean;
 }
 
 export interface UserSubZone {
@@ -227,4 +245,5 @@ export const RETIRE_REASON: Record<string, string> = {
   unused: "不再使用此节点",
   renamed: "已换新名",
   admin: "管理员删除",
+  no_access: "已不在该节点", // plan 321: last grant / forward / landing gone
 };

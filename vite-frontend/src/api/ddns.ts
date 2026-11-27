@@ -51,7 +51,13 @@ export interface DDNSRecordPayload {
   source: DDNSSource;
   prefix: string;
   takeover: boolean;
+  /** Plan 321 运营商标签 next to this entry: "" = from the source (ct/cu/cm),
+   * else ct | cu | cm | none. Display only. Absent = unchanged (older UI). */
+  carrier?: DDNSCarrier;
 }
+
+/** Plan 321: "" auto, ct 电信, cu 联通, cm 移动, none 不显示. */
+export type DDNSCarrier = "" | "ct" | "cu" | "cm" | "none";
 
 export interface NodeDDNSPayload {
   enabled: boolean;
@@ -74,6 +80,8 @@ export interface DDNSRecordView extends DDNSRecordPayload {
   lastError: string;
   lastSyncAt: number;
   lastCheckAt: number;
+  /** Plan 321: the tag users see (电信 / 联通 / 移动 / ""). */
+  carrierLabel?: string;
 }
 
 export interface NodeDDNSView {

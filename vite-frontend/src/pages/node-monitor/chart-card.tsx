@@ -203,8 +203,8 @@ function UserVisibleSwitch({
   onChange: (chart: LineMonitorChart, visible: boolean) => void;
 }) {
   return (
-    <label
-      className="mr-1 flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-default-600"
+    <span
+      className="mr-1 flex shrink-0 items-center gap-1.5 text-xs text-default-600"
       data-testid={`lm-user-visible-${chart.id}`}
       title="打开后普通用户可以在「线路监测」里看到这张图（只读：线路名、延迟、丢包、断流；看不到 IP、域名和端口）"
     >
@@ -215,8 +215,8 @@ function UserVisibleSwitch({
         size="sm"
         onValueChange={(v) => onChange(chart, v)}
       />
-      用户可见
-    </label>
+      <span aria-hidden="true">用户可见</span>
+    </span>
   );
 }
 

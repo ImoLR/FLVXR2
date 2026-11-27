@@ -1376,6 +1376,10 @@ func (h *Handler) leiKwanRuleView(x model.LeiKwanRule, c *leiKwanRuleCtx, admin 
 		if e.OfflineSince > 0 {
 			ev["offlineSince"] = e.OfflineSince
 		}
+		// Plan 321: 电信 / 联通 / IPv6 of the entry (from leiKwanEntryNodes).
+		if e.EntryLabel != nil {
+			ev["entryLabel"] = e.EntryLabel
+		}
 		v["entry"] = ev
 	}
 	if !admin {

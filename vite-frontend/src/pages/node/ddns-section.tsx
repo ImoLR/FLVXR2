@@ -5,6 +5,7 @@ import {
   syncNodeDDNS,
   type DDNSRecordPayload,
   type DDNSRecordType,
+  type DDNSCarrier,
   type DDNSSource,
   type DDNSStatus,
   type DNSProviderView,
@@ -42,11 +43,21 @@ export const ddnsFromView = (view?: NodeDDNSView | null): NodeDDNSPayload =>
           source: r.source,
           prefix: r.prefix || "",
           takeover: r.takeover,
+          carrier: r.carrier || "",
         })),
         userSubdomain: Boolean(view.userSubdomain?.toggle),
         keepAddress: Boolean(view.keepAddress),
       }
     : emptyDDNS();
+
+/** Plan 321: the 运营商标签 choices (auto = from the address source). */
+const CARRIER_TEXT: Record<string, string> = {
+  ct: "电信",
+  cu: "联通",
+  cm: "移动",
+};
+const carrierAutoText = (source: string) =>
+  CARRIER_TEXT[source] ? `自动（${CARRIER_TEXT[source]}）` : "自动（不显示）";
 
 /** Plan 305: how a DDNS record is named next to user names (like the panel). */
 export const userSubRecordLabel = (source: string, role: string): string =>
@@ -354,7 +365,7 @@ export function NodeDDNSSection({
                     <SelectItem key="extra">附加入口</SelectItem>
                   </Select>
                 </div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.6fr)]">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.6fr)_minmax(0,1fr)]">
                   <Select
                     label="地址来源"
                     selectedKeys={[rec.source]}
@@ -400,6 +411,32 @@ export function NodeDDNSSection({
                         : "加入节点的附加 IP（可在隧道里勾选为入口）"}
                     </p>
                   )}
+                  {/* Plan 321: the 电信 / 联通 tag next to this entry. */}
+                  <Select
+                    data-testid="ddns-carrier"
+                    description={
+                      rec.type === "AAAA" ? "另带「IPv6」标签" : undefined
+                    }
+                    label="运营商标签"
+                    selectedKeys={[rec.carrier || "auto"]}
+                    size="sm"
+                    variant="bordered"
+                    onSelectionChange={(keys) => {
+                      const k = String(Array.from(keys)[0] || "auto");
+
+                      setRecord(i, {
+                        carrier: (k === "auto" ? "" : k) as DDNSCarrier,
+                      });
+                    }}
+                  >
+                    <SelectItem key="auto">
+                      {carrierAutoText(rec.source)}
+                    </SelectItem>
+                    <SelectItem key="ct">电信</SelectItem>
+                    <SelectItem key="cu">联通</SelectItem>
+                    <SelectItem key="cm">移动</SelectItem>
+                    <SelectItem key="none">不显示</SelectItem>
+                  </Select>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Checkbox

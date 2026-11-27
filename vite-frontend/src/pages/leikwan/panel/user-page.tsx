@@ -47,6 +47,7 @@ import {
   RuleLatencyTag,
 } from "@/pages/leikwan/panel/rule-latency";
 import { Button } from "@/shadcn-bridge/heroui/button";
+import { EntryLabelPills } from "@/components/entry-label";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 
 // Plan 270: the user view of 利群汇聚 (screens 06–08). Only for users with an
@@ -365,6 +366,10 @@ export function LeiKwanUserView() {
                   ) : (
                     "授权没有主入口"
                   )}
+                  <EntryLabelPills
+                    className="ml-1.5"
+                    label={r.entry?.entryLabel}
+                  />
                   {r.entry?.online === false && (
                     <OfflinePill
                       inline
@@ -619,6 +624,11 @@ export function LeiKwanUserView() {
                       <span className="text-xs text-default-400">
                         授权没有主入口
                       </span>
+                    )}
+                    {r.entry?.entryLabel && (
+                      <div className="mt-0.5">
+                        <EntryLabelPills label={r.entry.entryLabel} />
+                      </div>
                     )}
                     {r.entry?.online === false && (
                       <div className="mt-1">

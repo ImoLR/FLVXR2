@@ -583,6 +583,28 @@ export const LandingUserSettings = forwardRef<
                   {quota.paused && (
                     <p className="text-xs text-warning">额度已用完</p>
                   )}
+                  {/* Plan 321: which grants the row comes from (no grant,
+                      forward or landing left = the row goes away). */}
+                  {form.serverGrants?.[serverKey(quota)]?.length ? (
+                    <p
+                      className="truncate text-[11px] text-default-500"
+                      data-server-grants={serverKey(quota)}
+                      title={form.serverGrants[serverKey(quota)]
+                        .map(
+                          (g) =>
+                            `${g.tunnelName}${g.entry ? "（入口）" : "（中转/出口）"}${g.status !== 1 ? " · 已停用" : ""}`,
+                        )
+                        .join("\n")}
+                    >
+                      授权：
+                      {form.serverGrants[serverKey(quota)]
+                        .map(
+                          (g) =>
+                            `${g.tunnelName}${g.status !== 1 ? "（已停用）" : ""}`,
+                        )
+                        .join("、")}
+                    </p>
+                  ) : null}
                 </div>
                 <Input
                   aria-label={`${quota.serverName || quota.serverRefId} 总流量限额 GB`}

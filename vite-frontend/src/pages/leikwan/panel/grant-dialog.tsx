@@ -19,6 +19,7 @@ import {
   ModalHeader,
 } from "@/shadcn-bridge/heroui/modal";
 import { Select, SelectItem } from "@/shadcn-bridge/heroui/select";
+import { EntryLabelPills } from "@/components/entry-label";
 import { Spinner } from "@/shadcn-bridge/heroui/spinner";
 import { Pill } from "@/pages/landing/pill";
 import {
@@ -524,7 +525,13 @@ export function LeiKwanGrantDialog({
                   }
                   textValue={`${e.name} · ${e.host}`}
                 >
-                  {`${e.name} · ${e.host}${!e.online || e.leikwanStatus === "running" ? "" : "（利群客户端未检测到）"}`}
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">
+                      {`${e.name} · ${e.host}${!e.online || e.leikwanStatus === "running" ? "" : "（利群客户端未检测到）"}`}
+                    </span>
+                    {/* Plan 321: 电信 / 联通 / IPv6 of the entry */}
+                    <EntryLabelPills label={e.entryLabel} />
+                  </span>
                 </SelectItem>
               )),
             ]}
@@ -541,6 +548,7 @@ export function LeiKwanGrantDialog({
               )}
               <ClientPill caps={caps?.[entryNode.id]} />
               <CapPills caps={caps?.[entryNode.id]} />
+              <EntryLabelPills label={entryNode.entryLabel} />
             </div>
           )}
           {pickedPhone && (

@@ -208,7 +208,7 @@ func runUserAccessCleanup(t *testing.T, dialect string) {
 	wingsNathan := names(90, 49)[0].Domain
 
 	// B. Entry tags (plan 321) on the forward's names (admin and owner), none
-	// on the vendor IPv4 name; the admin tunnel list tags our DDNS names.
+	// on the vendor IPv4 name.
 	labelsOf := func(token string, id int64) map[string]map[string]interface{} {
 		t.Helper()
 		var out struct {
@@ -237,9 +237,6 @@ func runUserAccessCleanup(t *testing.T, dialect string) {
 	if l := labelsOf(tok[90], f90a.ID); len(l) != 2 || l[wingsCT]["carrier"] != "电信" || l[wingsCU]["carrier"] != "联通" || l[wingsCU]["ipv6"] != true {
 		t.Fatalf("user entry labels: %+v", l)
 	}
-	if raw := mustOK(admin, "tunnel/list", map[string]interface{}{}); !strings.Contains(raw, `"inIpLabels":{"`+ct+`":{"carrier":"电信","ipv6":true}`) {
-		t.Fatalf("tunnel list labels: %.1500s", raw)
-	}
 
 	// 1. His forward on 沪台 deleted, both grants left: names + row stay, the
 	// admin list names both grants.
@@ -249,7 +246,8 @@ func runUserAccessCleanup(t *testing.T, dialect string) {
 		t.Fatalf("after forward delete: names %s row %v", s, quotaRow(90, 48))
 	}
 	raw := mustOK(admin, "node/user-subdomain/list", map[string]interface{}{"userId": 90})
-	for _, want := range []string{`"tunnelName":"` + tA.Name + `"`, `"tunnelName":"` + tB.Name + `"`, `"userTunnelId":` + strconv.FormatInt(utB.ID, 10)} {
+	for _, want := range []string{`"tunnelName":"` + tA.Name + `"`, `"tunnelName":"` + tB.Name + `"`, `"userTunnelId":` + strconv.FormatInt(utB.ID, 10),
+		`"recordLabel":"联通"`, `"entryLabel":{"carrier":"电信","ipv6":true}`, `"entryLabel":{"carrier":"联通","ipv6":true}`} {
 		if !strings.Contains(raw, want) {
 			t.Fatalf("admin list lacks %s: %.1500s", want, raw)
 		}

@@ -1587,14 +1587,20 @@ func (h *Handler) userSubListData(nodeID, userID int64, retired bool) (map[strin
 		if n, ok := nodes[row.NodeID]; ok {
 			if t, ok := n.Target(row.RecordDomain); ok {
 				v.TargetDomain = t.Domain
+				// Plan 321: the entry tag of the record the name points at.
+				if l, ok := labels.Of(t.Domain); ok && t.Domain != "" && !l.Empty() {
+					v.EntryLabel = &l
+				}
 				if len(n.Targets) > 1 {
 					v.RecordLabel = repo.UserSubdomainTargetLabel(t)
+					// Plan 321: the admin's 运营商标签 wins over the source.
+					if l, _ := labels.Of(t.Domain); l.Carrier != "" {
+						v.RecordLabel = l.Carrier
+					} else if labels != nil && repo.EntryCarrierLabel(t.Source) != "" {
+						v.RecordLabel = map[bool]string{true: "主地址", false: "附加地址"}[t.Key == ""]
+					}
 				}
 			}
-		}
-		// Plan 321: the entry tag of the record the name points at.
-		if l, ok := labels.Of(v.TargetDomain); ok && v.TargetDomain != "" {
-			v.EntryLabel = &l
 		}
 		if v.UserName == "" {
 			v.UserName = fmt.Sprintf("（已删除用户 #%d）", row.UserID)

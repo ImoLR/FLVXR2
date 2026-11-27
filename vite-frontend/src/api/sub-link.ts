@@ -114,6 +114,8 @@ export interface SubPoolNode {
   /** plan 315 (rule links): forward name + entry node name (fixed names) */
   base?: string;
   entryName?: string;
+  /** plan 321: 电信 / 联通 / IPv6 of the entry address (display only) */
+  entryLabel?: { carrier?: string; ipv6?: boolean };
 }
 
 export interface SubPoolSource extends SubSource {
