@@ -11,9 +11,9 @@ Conflicts (2, as predicted): `repository_landing_egress.go` node Select (vendors
 
 ## Checklist
 - [x] 1. Worktree flvxx-319, merge 317 + 318, resolve the 2 conflicts.
-- [ ] 2. Tests on the merged head: go vet, SQLite `go test ./...`, PG handler / repo / contract `-p 1`,
-      go-gost/x landing + socket, `npm run build`.
-- [ ] 3. Prod-DB copy rehearsal in `unshare -n`: fork.177 migrates (node.landing_snell / landing_mieru /
+- [x] 2. Tests on the merged head: go vet, SQLite `go test ./...`, PG handler / repo / contract `-p 1`,
+      go-gost/x landing + socket (frontend build = CI Build Check).
+- [x] 3. Prod-DB copy rehearsal in `unshare -n`: fork.177 migrates (node.landing_snell / landing_mieru /
       vendors / vendor_other), render diff = only the 4 expected landings; fork.176 on the migrated copy renders
       byte-identical to before (rollback proof).
 - [ ] 4. Push, tag 3.0.27-fork.177, CI + Images green, Latest, 10 assets, gost sha256.
@@ -27,3 +27,19 @@ Conflicts (2, as predicted): `repository_landing_egress.go` node Select (vendors
 - [ ] 11. Ledger 317 + 318 → 已发布, memory files, summary.
 
 ## Evidence
+- Tests (11-27 ~21:00–21:35 TW, TMPDIR off /tmp, run dir runs/release-fork177-vendor-snell/work): `go vet ./...` ok;
+  SQLite `go test ./...` 30/30 packages ok (handler 280 s, contract 232 s); PG 18 `-p 1`: repo ok (586 s), handler ok
+  (499 s), contract ok (726 s); go-gost/x socket ok; landing: 2 failures = the same 2 plan 317 recorded as pre-existing
+  (TestLandingRealCoreUpgradeRestart fails identically on unmodified fork.176 — missing download stub;
+  TestEgressRealCoreAcceptsRenderedConfig needs FLVX_LANDING_GEODIR); CI Build Check 46004322474 green (incl. npm build).
+- Prod-DB copy (11-27 20:58 TW, backup API, `unshare -n`, real binaries: fork.177 = local CGO_ENABLED=0 build of the
+  merged head, fork.176 = `docker cp` from the 176 image):
+  - real fork.177 starts on the copy: AutoMigrate adds node.landing_snell / landing_mieru / vendors / vendor_other,
+    quick_check ok, startup migration gives the 8 native landing nodes their vendor; backfill through the lab API
+    (backfill-prod.py via labbackfill.py): 25 set, 8 skipped (already equal), second dry run 0 → 33/33 nodes have a vendor.
+  - real fork.176 starts clean on the migrated + backfilled copy (health ok, no SQL / migration errors).
+  - render dumps (agent payloads, share desired, node links of all 13 servers): fork.176 vs fork.177+backfill = 48
+    identical, 4 different = only the vendor rule's domain list: Dmit T1 (share) dmit.io, dmithost.net → + dmit.com;
+    Bestvm US / Bestvm JP B bestvm.cloud → + vmsilo.com, xwan.world; PQS TW pqs.pw → + pqs.cloud, pni.com.tw (rule
+    names unchanged; Boil Hinet 158 byte-identical). fork.176 on the migrated copy vs before: 52/52 identical (rollback proof).
+  - cutover simulation (node 168 moved to a native Dmit T1 + keep row + caps): node 168 links identical.
