@@ -63,8 +63,54 @@ screenshots → user approval → separate release task.
 - [x] Compile from node vendors (native) / server vendor (shared) + tests
 - [x] Handlers: node create/update/list/options, assign/server-save share-only, admin views, resync + tests
 - [x] Contract tests: required on create, user view has no vendor fields (extend), node list strip
-- [ ] Frontend: node dialog, node card/list ⚠, landing ⚠, server 设置, 管理厂商, 内置 row
-- [ ] go vet + go test SQLite + PG, npm run build
+- [x] Frontend: node dialog, node card/list ⚠, landing ⚠, server 设置, 管理厂商, 内置 row
+- [x] go vet + go test SQLite + PG, npm run build
 - [x] Prod-DB copy: migrate + backfill + render before/after diff, 158 byte-identical, rollback (fork.176 on migrated copy)
-- [ ] Screenshots gallery (desktop + 390 px, light + dark)
+- [x] Screenshots gallery (desktop + 390 px, light + dark)
 - [ ] Push branch, CI Build Check green, ledger row (等用户看截图), memory, summary
+
+## Evidence (build, 11-27)
+
+- Prod-DB copy (11-27 16:16 TW, read-only backup API copy), `unshare -n`:
+  - fork.176 code render = before; plan-318 code opens it (AutoMigrate + node vendor migration: the 8 native
+    landings' nodes get bestvm ×2 / boil ×2 / fachost / nexkr / pqs / tcscloud), then the backfill table (33 nodes,
+    25 set, 8 already equal) → render = after. Admin view after backfill: 0 nodes need a vendor.
+  - Diff after vs before (work/render-diff.txt): only the vendor rule's domains on 4 servers — Dmit T1 (share)
+    +dmit.com; Bestvm US / Bestvm JP B +vmsilo.com, +xwan.world; PQS TW (native) +pqs.cloud, +pni.com.tw. Rule
+    names, placement, markers, tags, outbounds, warnings unchanged. Boil Hinet 158, NexKR, Boil Hinet 马年,
+    Boil HKT 99u, Fachost seednet 黑五, Tcscloud Seednet and the dead share rows: byte-identical.
+  - The same 4 servers already change right after the panel swap (new seed list); the backfill itself only touches
+    the 25 non-landing nodes (no landing re-sync).
+  - Rollback: fork.176 code on the migrated + backfilled copy renders byte-identical to before (mirror
+    `landing_server.vendor` = first node vendor).
+- Agent: SNI complement regexp is built from the rendered `domain:` names (`go-gost/x/landing/vendor.go`
+  vendorSets / sniffExcludeRegexp, max 64 names per rule) → panel-only, no OTA.
+- Lab (prod-DB copy, `unshare -n`, mmwx token blanked): 火山广州 (Leikwanhost + 火山引擎) enabled as a landing
+  through the normal 启用为落地 API → its plan carries `内置：屏蔽本机厂商官网（Leikwanhost、火山引擎）` with
+  leikwanhost.com, volcengine.cn, volcengine.com at once; mirror = leikwan.
+- Gallery: http://104.145.236.29:8791/vendor-node-pick/ (68 PNG, desktop / 390 px / dark).
+- Tests (round 2, 11-27 17:04–18:00 TW, `-p 1`, TMPDIR off /tmp): `go vet ./...` ok. SQLite: all 28 other
+  packages ok, handler ok (276 s), contract 1st run: `TestForwardWarmTagContract` failed once with
+  「部分节点不在线」 at tunnel create = known race (the test dials the agent websocket and creates the tunnel
+  without waiting for node.status = 1; same failure in the fork.138 release gates, plan 318 only adds
+  `vendors` to its node/create). It passed alone ×5 and ×60 (`-cpu 1`), and the full contract re-run was ok
+  (232 s). PG 18 (`FLVX_POSTGRES_TEST_DSN`): repo ok (594 s), handler ok (472 s), contract ok (686 s).
+  `npm run build` (tsc + vite) ok.
+- Live prod node list re-checked read-only 11-27 17:28 TW: 33 nodes = the 33 rows of `backfill.json`, no new
+  or renamed node → no node left without a vendor after the backfill.
+
+## Release recipe (follow-up task, after the user approves the screenshots)
+
+1. Rebase / merge onto the prod branch head (fork.176 = 7b5aab50, or later if 317 ships first), next free fork,
+   CI + Images green, 10 assets, gost sha256 (fork-release-and-deploy).
+2. Prod backup + rollback dir (`/opt/flvx-svc/rollback/pre-forkNNN-*/rollback.sh` → fork.176 image swap), then
+   `/root/flvx-workers/prune-backups.sh`. Record every native landing's Core PID first.
+3. Swap. AutoMigrate adds node.vendors / node.vendor_other; the startup migration copies the 8 native landing
+   vendors to their nodes. The new seed list hot-updates 4 landings: Bestvm US, Bestvm JP B, PQS TW (native,
+   hot RoutingService update, Core PID must stay) and Dmit T1 (share, mmwx Custom hot rule). Check Core PIDs.
+4. Backfill: `/root/flvx-workers/runs/vendor-node-pick/work/backfill-prod.py` (+ `backfill.json`; dry run) → `--apply` (admin API `node/vendor/set`, one node at a time,
+   2 s apart, names re-checked; unlisted new nodes stay empty with ⚠ and go in the summary).
+5. Post-upgrade node checks (`briefs/snippets/post-upgrade-node-check.md`) on Bestvm US, Bestvm JP B, PQS TW and
+   the Dmit T1 share; live check through the matching landing: dmit.com (Dmit T1), vmsilo.com (Bestvm US / JP B),
+   pqs.cloud (PQS TW) refused, google OK, latency / speed unchanged.
+6. Rollback = rollback.sh (fork.176 renders the same as today; node.vendors stays in the DB, unused).
