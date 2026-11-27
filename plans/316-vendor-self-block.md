@@ -109,3 +109,7 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
 - Agent OTA fork.176 (landing_guard 3), idle hosts only: NexKR 07:18, Boil HKT 99u 07:20, Fachost 07:21 TW (≈ 8 s each,
   landing Core PID unchanged). After: IP + SNI to the vendor refused too; NexKR 874 ms / 27.9 Mbit/s, 99u 676 / 49.2,
   Fachost 675 / 38.0 (same as before).
+- Busy hosts, OTA when quiet (quiet.py: landing conns ≤ 1–2 and < 2 MB / 10 min, forwards through the host < 2 MB):
+  Bestvm JP B 07:37 TW (landing 0 conns, forwards 0.3 MB / 10 min; Core PID unchanged; after: 652 ms / 48.5 Mbit/s,
+  domain + IP/SNI refused; forwards #659 / #91 diagnose unchanged, #78 failing before too). Boil Hinet 马年 11:51 TW (2
+  idle conns, 3.7 KB / 6 min; after 600 ms / 48.9 Mbit/s, both refused). PQS TW and Bestvm US: still busy → window.
