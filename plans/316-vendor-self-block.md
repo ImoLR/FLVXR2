@@ -54,9 +54,9 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
 - [x] Prod-DB copy render before/after: diff = only the new rule, only on servers with a vendor
 - [x] Wait for fork.175, rebase, release fork.176 (tag, CI, assets)
 - [x] Prod backup + upgrade, prune backups
-- [ ] Assign vendors on prod; OTA landing agents (idle now / busy in 02–06 TW); node checks
+- [x] Assign vendors on prod; OTA landing agents (idle now / busy in 02–06 TW); node checks
 - [x] Live check per vendor (vendor domain refused, normal site OK)
-- [ ] Ledger, memory, summary
+- [x] Ledger, memory, summary
 
 ## Evidence (build)
 
@@ -113,3 +113,22 @@ hosts. Release = next free fork (fork.176), after fork.175 (plan 315).
   Bestvm JP B 07:37 TW (landing 0 conns, forwards 0.3 MB / 10 min; Core PID unchanged; after: 652 ms / 48.5 Mbit/s,
   domain + IP/SNI refused; forwards #659 / #91 diagnose unchanged, #78 failing before too). Boil Hinet 马年 11:51 TW (2
   idle conns, 3.7 KB / 6 min; after 600 ms / 48.9 Mbit/s, both refused). PQS TW and Bestvm US: still busy → window.
+- Worker session died 11-27 16:01 TW (OAuth), resumed 16:15 TW; nothing was half-done (PQS TW / Bestvm US agents
+  untouched). Meanwhile fork.177 (plans 317 + 318, 11-27 21:48 TW) moved the VPS 厂商 onto nodes (17-vendor seed, more
+  names per vendor) and the coordinator set Boil on Boil Hinet 158 (11-27 14:31 TW, user's request).
+- 02:05 TW window: the panel only OTAs to its own version, so the first PQS TW attempt (fork.176) was refused
+  (「节点版本必须与当前 Panel 版本 3.0.27-fork.177 一致」, nothing changed) → both hosts went to **fork.177** (= fork.176
+  agent + plan-317 Snell/Mieru, vendor.go unchanged, GuardVersion 3; already on Dmit T1 since 21:59 TW).
+  - PQS TW 02:23 TW (44 live conns, ~0.1 MB/min): ≈ 10 s, Core PID unchanged, its 41 live user conns stayed; after:
+    sniff override on 3 inbounds (pqs.pw, pqs.cloud, pni.com.tw), 601 ms / 34.9 Mbit/s vs 611 / 32.1 before, aws-hk RTT
+    22.2 vs 20.1 ms, domain + IP/SNI refused.
+  - Bestvm US 02:33 TW (US daytime: 125–180 conns, a few MB/min the whole window, never quiet): ≈ 10 s, Core PID
+    unchanged; after: 12 inbounds (incl. chain copies) override bestvm.cloud / vmsilo.com / xwan.world, 256 ms /
+    190 Mbit/s vs 251 / 187, domain + IP/SNI refused. Forwards #627 / #616 diagnose unchanged; #660 (ns-windy → his own
+    external landing via the chain copy 127.0.0.1:30004) spiky before (571 ms 01:47, one failed sample) and after
+    (57–4665 ms; final run 57.9 ms 3/3); local connect to :30004 < 1 ms, host load 0.2 → upstream side, not the agent.
+    The one forward stream running at 02:33 was cut by the agent restart (window); real TLS through forward #627
+    (Dmit Echo → Bestvm US → landing → dest) OK 3/3 at ~490 ms afterwards.
+- All 8 FLVX landing agents now landing_guard 3 (6 × fork.176, Bestvm US / PQS TW / Dmit T1 fork.177). Agent backups on
+  each host: /root/flvxx-backup-<ts>-pre-fork176/ or -pre-ota-3.0.27-fork.177/ (restore-agent.sh; PQS TW also has an
+  unused -pre-fork176 dir from the refused attempt). Watcher unit flvx-vsb-quiet ended itself at 02:05 TW.
