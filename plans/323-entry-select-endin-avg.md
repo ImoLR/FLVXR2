@@ -66,6 +66,20 @@ he wants it to show the table's 「平均」 (mean of the selected range, `LineS
 ## Common
 - [x] `npm run build` (tsc + vite) ok; eslint 0 errors, no new warnings (select.tsx 35 → 31)
 - [x] Screenshots gallery `/root/mmwx-preview/plan-323/` (http://104.145.236.29:8791/plan-323/)
-- [ ] Commit, push branch (own upstream), CI green
-- [ ] Ledger row 323 in `/root/flvx-workers/RELEASE-LEDGER.md` 待发布 (panel only, no DB, no OTA)
-- [ ] Clean build output / caches
+- [x] Commit 04a7e021, push branch (own upstream `origin/feature/3.0.27-323-entry-select-endin-avg`),
+      CI 46128028371 green (frontend, Go backend, PG contract, agent)
+- [x] Ledger row 323 in `/root/flvx-workers/RELEASE-LEDGER.md` 待发布 (panel only, no DB, no OTA)
+- [x] Clean build output / caches (local dists, replay shots, read-only prod API capture deleted;
+      borrowed node_modules symlink removed)
+
+## Verification notes
+- Prod was only read: Playwright with a short-lived admin token opened 换主入口 / 修改 / 编辑专线 /
+  添加转发 dialogs and their pickers, then Escape (never 保存 / 创建); the user view data came from
+  two read-only user API calls (`line-monitor/list|data`, clot88). Everything else ran on the local
+  dist with the captured responses replayed (no server, no port).
+- Numbers (1440×900, 换主入口): before list 390–640 vs visible area (ModalBody) 324–553 → 火山广州 0 %
+  visible, cannot scroll; after: list fixed 390–640 inside the dialog box 256–645 → all 4 at 100 %.
+  390×844 @125 %: after the list scrolls, last entry 100 % at the bottom; 5 entries (simulated 手机本地)
+  same.
+- Release: batch with the next FLVX release (user 11-28 「先别发布，到时等几个一起发布」); panel
+  image only.
