@@ -26,9 +26,17 @@ const BADGE: Record<
 const fmtTime = (ms: number) =>
   ms ? new Date(ms).toLocaleString("zh-CN", { hour12: false }) : "—";
 
-export function NodeDDNSBadge({ ddns }: { ddns?: NodeDDNSView | null }) {
+/** The badge the card shows (null = none); plan 324 group markers use it too. */
+export function ddnsBadgeState(ddns?: NodeDDNSView | null) {
   if (!ddns?.enabled || !ddns.status) return null;
-  const badge = BADGE[ddns.status] || BADGE.pending;
+
+  return BADGE[ddns.status] || BADGE.pending;
+}
+
+export function NodeDDNSBadge({ ddns }: { ddns?: NodeDDNSView | null }) {
+  const badge = ddnsBadgeState(ddns);
+
+  if (!ddns || !badge) return null;
 
   return (
     <Dropdown>

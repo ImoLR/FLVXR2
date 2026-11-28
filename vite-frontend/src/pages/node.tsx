@@ -15,7 +15,6 @@ import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import {
   DndContext,
-  pointerWithin,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
@@ -32,7 +31,28 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import { NodeGroupManager } from "./node/node-group-manager";
+import {
+  NodeGroupChips,
+  NodeGroupTabs,
+  TAB_ALL,
+  LEIKWAN_GROUP_ID,
+  type UnifiedGroup,
+  buildTabs,
+  buildUnifiedGroups,
+  flashNode,
+  tabMembers,
+  unifiedToSave,
+} from "./node/node-group-tabs";
+import {
+  NodeEditGroupPicker,
+  NodeGroupsManager,
+  useLeiKwanMemberGuard,
+} from "./node/node-groups-manager";
+import {
+  groupAttention,
+  nodeGroupAttention,
+  type NodeAttention,
+} from "./node/node-group-attention";
 import { NodeDeployModal } from "./node/node-deploy-modal";
 import { NodeIPv6RABadge } from "./node/ipv6-ra-badge";
 import {
@@ -115,7 +135,6 @@ import {
   getNodeReleases,
   refreshNodeExpiryReminder,
   getNodeGroupList,
-  assignNodeToGroup,
   batchResetNodeTraffic,
   recordNodeOfflineLog,
   getNodeTrafficResetLogs,
@@ -148,6 +167,8 @@ import {
 import { NodeDDNSBadge } from "@/pages/node/ddns-badge";
 import { NodeUserSubdomainPill } from "@/pages/node/user-subdomain-pill";
 import {
+  NODE_EXPIRING_SOON_DAYS,
+  isNodeExpiryReminderDismissed,
   getNodeRenewalSnapshot,
   normalizeNodeRenewalCycle,
   formatNodeRenewalTime,
@@ -160,15 +181,12 @@ import {
 import { useNodeOfflineTimers } from "@/pages/node/use-node-offline-timers";
 import { useNodeRealtime } from "@/pages/node/use-node-realtime";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { useGroupScrollSettle } from "@/hooks/use-group-scroll-settle";
-import {
-  TreeGroupChevron,
-  TreeGroupFooter,
-  TreeGroupHeader,
-  treeGroupHeaderClass,
-  treeGroupWrapperClass,
-} from "@/components/tree-group";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import {
+  getNodePageGroups,
+  saveNodePageGroups,
+  type NodePageGroups,
+} from "@/api/node-groups";
 import { loadStoredOrder, saveOrder } from "@/utils/order-storage";
 // TypeScript 全局类型扩展
 declare global {
@@ -308,18 +326,12 @@ interface NodeForm extends MachineProtectForm {
   socks: number;
 }
 type NodeViewMode = "grid" | "list" | "grouped";
-const EXPIRING_SOON_DAYS = 7;
+const EXPIRING_SOON_DAYS = NODE_EXPIRING_SOON_DAYS;
 
 type NodeExpiryState = "permanent" | "healthy" | "expiringSoon" | "expired";
 type NodeFilterMode = "all" | "expiringSoon" | "expired" | "withExpiry";
-// Dismissed = expiry_reminder_dismissed, limited by dismissed-until when set
-// (plan 196: 「已续费」 in Telegram lasts until that cycle's due date).
 const isExpiryReminderDismissed = (node: Node): boolean =>
-  node.expiryReminderDismissed === 1 &&
-  !(
-    node.expiryReminderDismissedUntil &&
-    node.expiryReminderDismissedUntil * 1000 < Date.now()
-  );
+  isNodeExpiryReminderDismissed(node);
 const getNodeReminderEnabled = (node: Node): boolean => {
   return !!node.expiryTime && node.expiryTime > 0 && !!node.renewalCycle;
 };
@@ -496,10 +508,6 @@ export default function NodePage() {
   );
   const [nodeFilterMode, setNodeFilterMode, resetNodeFilterMode] =
     useLocalStorageState<NodeFilterMode>("node-expiry-filter-mode", "all");
-  const [filterGroupId, setFilterGroupId] = useLocalStorageState<number | null>(
-    "node-filter-group-id",
-    null,
-  );
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
@@ -668,21 +676,13 @@ export default function NodePage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchDeleteModalOpen, setBatchDeleteModalOpen] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
-  const [viewMode, setViewMode] = useLocalStorageState<NodeViewMode>(
+  const [storedViewMode, setViewMode] = useLocalStorageState<NodeViewMode>(
     "node-view-mode",
     "grid",
   );
-  // Plan 287: the 分组 view is an accordion like 转发 / 隧道 / 落地 — one group
-  // open. Plan 289: kept in memory only, every visit starts with every group
-  // collapsed (old stored keys: utils/forget-group-open).
-  const [openNodeGroup, setOpenNodeGroup] = useState("");
-  const queueGroupScroll = useGroupScrollSettle();
-  const toggleNodeGroup = (groupIdStr: string) => {
-    const open = openNodeGroup !== groupIdStr;
-
-    queueGroupScroll(`node-group:${groupIdStr}`, open);
-    setOpenNodeGroup(open ? groupIdStr : "");
-  };
+  // Plan 324: groups are tabs now; the old 分组 (accordion) view left the
+  // page, so a stored 「grouped」 opens 卡片.
+  const viewMode: "grid" | "list" = storedViewMode === "list" ? "list" : "grid";
   const [infoPopoverOpenId, setInfoPopoverOpenId] = useState<number | null>(
     null,
   );
@@ -757,13 +757,16 @@ export default function NodePage() {
     Record<number, "left" | "bottom">
   >({});
   const [nodeGroups, setNodeGroups] = useState<NodeGroupApiItem[]>([]);
-  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
+  // Plan 324: the 节点 page groups (= the 探针 groups + 利群入口). The tab is
+  // not remembered: every visit opens 「综合」.
+  const [pageGroups, setPageGroups] = useState<NodePageGroups | null>(null);
+  const [groupTab, setGroupTab] = useState<string>(TAB_ALL);
+  const [groupsManagerOpen, setGroupsManagerOpen] = useState(false);
+  // Edit dialog: the unified groups ticked for this node.
+  const [formGroupIds, setFormGroupIds] = useState<number[]>([]);
   const [tlsManagerOpen, setTLSManagerOpen] = useState(false);
   const [deployModalOpen, setDeployModalOpen] = useState(false);
   const [deployTargetNode, setDeployTargetNode] = useState<Node | null>(null);
-  const [groupSelectorNode, setGroupSelectorNode] = useState<number | null>(
-    null,
-  );
   const openDeployModal = useCallback((node: Node) => {
     if (node.isRemote === 1) {
       toast.error("远程共享节点不支持部署功能");
@@ -879,6 +882,37 @@ export default function NodePage() {
   useEffect(() => {
     loadNodeGroups();
   }, [loadNodeGroups]);
+  const loadPageGroups = useCallback(async () => {
+    try {
+      const res = await getNodePageGroups();
+
+      if (res.code === 0 && res.data) setPageGroups(res.data);
+    } catch {
+      // Silent: the page works without tabs.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPageGroups();
+  }, [loadPageGroups]);
+  const unifiedGroups = useMemo(
+    () => buildUnifiedGroups(pageGroups),
+    [pageGroups],
+  );
+  const groupsOfNode = useMemo(() => {
+    const m = new Map<number, UnifiedGroup[]>();
+
+    unifiedGroups.forEach((g) =>
+      g.nodes.forEach((id) => m.set(id, [...(m.get(id) || []), g])),
+    );
+
+    return m;
+  }, [unifiedGroups]);
+  const oldGroupName = useCallback(
+    (id: number) => nodeGroups.find((g) => Number(g.id) === id)?.name || "",
+    [nodeGroups],
+  );
+  const memberGuard = useLeiKwanMemberGuard(pageGroups, oldGroupName);
   const loadNodes = useCallback(async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
 
@@ -1334,8 +1368,12 @@ export default function NodePage() {
     setIsEdit(false);
     setDialogVisible(true);
     resetForm();
+    setFormGroupIds([]);
   };
   const handleEdit = (node: Node) => {
+    setFormGroupIds(
+      unifiedGroups.filter((g) => g.nodes.includes(node.id)).map((g) => g.id),
+    );
     invalidateRegionDetection();
     regionEdited.current = false;
     regionDetectServerIp.current = node.serverIp || "";
@@ -1427,21 +1465,6 @@ export default function NodePage() {
       }
     } catch (err) {
       toast.error("网络错误，请重试");
-    }
-  };
-  const handleAssignNodeToGroup = async (
-    nodeId: number,
-    groupId: number | null,
-  ) => {
-    try {
-      await assignNodeToGroup(nodeId, groupId);
-      setNodeList((prev) =>
-        prev.map((n) => (n.id === nodeId ? { ...n, groupId } : n)),
-      );
-      toast.success(groupId ? "分组已更新" : "已移除分组");
-      setGroupSelectorNode(null);
-    } catch (error) {
-      toast.error("操作失败");
     }
   };
   // 查看节点流量归零日志
@@ -1854,6 +1877,61 @@ export default function NodePage() {
       setBatchResetTrafficLoading(false);
     }
   };
+  // Plan 324: the edit dialog's group chips. Leaving / joining 利群入口 goes
+  // through the same guard as 「管理分组」 (in use = refused, else confirm).
+  const toggleFormGroup = (g: UnifiedGroup, on: boolean) => {
+    const apply = () =>
+      setFormGroupIds((prev) =>
+        on
+          ? [...prev.filter((id) => id !== g.id), g.id]
+          : prev.filter((id) => id !== g.id),
+      );
+    const lk = pageGroups?.leikwan;
+
+    if (g.id !== LEIKWAN_GROUP_ID || !lk || !isEdit || form.id == null) {
+      apply();
+
+      return;
+    }
+    const saved = lk.nodes.includes(form.id);
+    const me = { id: form.id, name: form.name, groupId: form.groupId };
+
+    if (!on && saved) memberGuard.requestRemove(me, apply);
+    else if (on && !saved) memberGuard.requestAdd(me, apply);
+    else apply();
+  };
+  // Writes this node's group membership (fresh list, only this node moved).
+  const saveNodeGroupsFor = async (nodeId: number): Promise<boolean> => {
+    let base = pageGroups;
+
+    try {
+      const fresh = await getNodePageGroups();
+
+      if (fresh.code === 0 && fresh.data) base = fresh.data;
+    } catch {
+      // fall back to what the page has
+    }
+    const list = buildUnifiedGroups(base).map((g) => {
+      const want = formGroupIds.includes(g.id);
+      const has = g.nodes.includes(nodeId);
+
+      if (want && !has) return { ...g, nodes: [...g.nodes, nodeId] };
+      if (!want && has)
+        return { ...g, nodes: g.nodes.filter((id) => id !== nodeId) };
+
+      return g;
+    });
+    const res = await saveNodePageGroups(unifiedToSave(list, !!base?.leikwan));
+
+    if (res.code !== 0) {
+      memberGuard.showError(res.msg || "分组保存失败");
+
+      return false;
+    }
+    if (res.data) setPageGroups(res.data);
+
+    return true;
+  };
   const handleSubmit = async () => {
     const formErrors = Object.values(validateForm()).filter(Boolean);
 
@@ -1871,6 +1949,37 @@ export default function NodePage() {
     }
     setSubmitLoading(true);
     try {
+      // Plan 324: node.group_id now only carries 利群入口 membership (other
+      // old groups stay as they are, hidden).
+      const lkGroup = pageGroups?.leikwan || null;
+      const wantLeiKwan = formGroupIds.includes(LEIKWAN_GROUP_ID);
+      const wasLeiKwan = !!(
+        lkGroup &&
+        form.id != null &&
+        lkGroup.nodes.includes(form.id)
+      );
+      const nodeGroupId =
+        lkGroup && wantLeiKwan
+          ? lkGroup.id
+          : wasLeiKwan
+            ? null
+            : isEdit
+              ? form.groupId
+              : null;
+      const groupsBefore =
+        isEdit && form.id != null
+          ? unifiedGroups
+              .filter((g) => g.nodes.includes(form.id!))
+              .map((g) => g.id)
+              .sort((a, b) => a - b)
+              .join(",")
+          : "";
+      const groupsAfter = [...formGroupIds].sort((a, b) => a - b).join(",");
+
+      if (isEdit && form.id != null && groupsBefore !== groupsAfter) {
+        if (!(await saveNodeGroupsFor(form.id))) return;
+      }
+      const knownIds = new Set(nodeList.map((n) => n.id));
       const apiCall = isEdit ? updateNode : createNode;
       const { intranetIp, serverIpV4, serverIpV6, ...rest } = form;
       const data = {
@@ -1885,7 +1994,7 @@ export default function NodePage() {
         adminNotice: form.adminNotice.trim(),
         expiryTime: form.expiryTime,
         renewalCycle: form.renewalCycle,
-        groupId: form.groupId,
+        groupId: nodeGroupId,
         extraIPs: form.extraIPs,
         lineMachine: form.lineMachine,
         ddns: form.ddns,
@@ -1960,7 +2069,7 @@ export default function NodePage() {
                       : "",
                     expiryTime: form.expiryTime,
                     renewalCycle: form.renewalCycle,
-                    groupId: form.groupId,
+                    groupId: nodeGroupId,
                     intranetIp: form.intranetIp?.trim(),
                     serverIpV4: form.serverIpV4,
                     serverIpV6: form.serverIpV6,
@@ -1993,6 +2102,26 @@ export default function NodePage() {
           );
         } else {
           loadNodes();
+          // Plan 324: create returns no id — find the new node by name.
+          if (formGroupIds.some((id) => id !== LEIKWAN_GROUP_ID)) {
+            try {
+              const list = await getNodeList();
+              const created = (list.data || [])
+                .filter(
+                  (n) => !knownIds.has(Number(n.id)) && n.name === form.name,
+                )
+                .map((n) => Number(n.id))
+                .sort((a, b) => b - a)[0];
+
+              if (created) await saveNodeGroupsFor(created);
+              else
+                toast("节点已创建，分组请在「管理分组」里设置", { icon: "ℹ️" });
+            } catch {
+              toast("节点已创建，分组请在「管理分组」里设置", { icon: "ℹ️" });
+            }
+          } else if (wantLeiKwan) {
+            loadPageGroups();
+          }
         }
       } else {
         toast.error(res.msg || (isEdit ? "更新失败" : "创建失败"));
@@ -2216,27 +2345,13 @@ export default function NodePage() {
           node.serverIpV6.toLowerCase().includes(normalizedKeyword)),
     );
   }, []);
-  const filteredNodes = useMemo(() => {
-    const keywordFiltered = filterNodesByKeyword(
-      sortedNodes,
-      localSearchKeyword,
-    );
-    const groupFiltered =
-      filterGroupId !== null
-        ? keywordFiltered.filter((node) => {
-            if (filterGroupId === -1) {
-              return !node.groupId || node.groupId === 0;
-            }
-
-            return node.groupId === filterGroupId;
-          })
-        : keywordFiltered;
-
+  // The 到期 filter first: group tab counts follow it (plan 324).
+  const modeFilteredNodes = useMemo(() => {
     if (nodeFilterMode === "all") {
-      return groupFiltered;
+      return sortedNodes;
     }
 
-    return groupFiltered.filter((node) => {
+    return sortedNodes.filter((node) => {
       const expiryMeta = getNodeExpiryMeta(node.expiryTime, node.renewalCycle);
 
       switch (nodeFilterMode) {
@@ -2250,13 +2365,71 @@ export default function NodePage() {
           return true;
       }
     });
+  }, [sortedNodes, nodeFilterMode]);
+  // Plan 324: what each machine's card flags (same functions as the badges).
+  const nodeAttention = useMemo(() => {
+    const m = new Map<number, NodeAttention[]>();
+
+    nodeList.forEach((n) => {
+      const a = nodeGroupAttention(n);
+
+      if (a.length > 0) m.set(n.id, a);
+    });
+
+    return m;
+  }, [nodeList]);
+  const groupTabs = useMemo(() => {
+    const byId = new Map(modeFilteredNodes.map((n) => [n.id, n]));
+
+    return buildTabs(
+      unifiedGroups,
+      modeFilteredNodes.map((n) => n.id),
+      (ids) =>
+        groupAttention(
+          ids.map((id) => byId.get(id)).filter((n): n is Node => !!n),
+          nodeAttention,
+        ),
+    );
+  }, [unifiedGroups, modeFilteredNodes, nodeAttention]);
+  // A deleted group / an emptied 「其他」 falls back to 「综合」.
+  const activeGroupTab = groupTabs.some((t) => t.key === groupTab)
+    ? groupTab
+    : TAB_ALL;
+  const filteredNodes = useMemo(() => {
+    const keywordFiltered = filterNodesByKeyword(
+      modeFilteredNodes,
+      localSearchKeyword,
+    );
+
+    // Search always covers every machine (the tab is 「综合」 then).
+    if (localSearchKeyword.trim() || activeGroupTab === TAB_ALL) {
+      return keywordFiltered;
+    }
+    const { ids, other } = tabMembers(activeGroupTab, unifiedGroups);
+
+    return keywordFiltered.filter((node) =>
+      other ? !ids?.has(node.id) : !!ids?.has(node.id),
+    );
   }, [
     filterNodesByKeyword,
-    sortedNodes,
+    modeFilteredNodes,
     localSearchKeyword,
-    nodeFilterMode,
-    filterGroupId,
+    activeGroupTab,
+    unifiedGroups,
   ]);
+
+  // Typing a keyword switches to 「综合」; picking a group clears the search.
+  useEffect(() => {
+    if (localSearchKeyword.trim()) setGroupTab(TAB_ALL);
+  }, [localSearchKeyword]);
+  const selectGroupTab = (key: string) => {
+    setGroupTab(key);
+    if (key !== TAB_ALL && localSearchKeyword.trim()) setLocalSearchKeyword("");
+  };
+  const jumpToNode = (tabKey: string, nodeId: number) => {
+    selectGroupTab(tabKey);
+    flashNode(nodeId);
+  };
   const displayNodes = filteredNodes;
   const nodeExpiryStats = useMemo(() => {
     return displayNodes.reduce(
@@ -2278,29 +2451,6 @@ export default function NodePage() {
     () => displayNodes.map((n) => n.id),
     [displayNodes],
   );
-  const groupedNodes = useMemo(() => {
-    const groupsMap = new Map<
-      number | string,
-      { group: NodeGroupApiItem | null; nodes: Node[] }
-    >();
-
-    nodeGroups.forEach((g) => {
-      groupsMap.set(Number(g.id), { group: g, nodes: [] });
-    });
-    groupsMap.set("none", { group: null, nodes: [] });
-    displayNodes.forEach((node) => {
-      const groupId =
-        node.groupId && node.groupId > 0 ? Number(node.groupId) : "none";
-
-      if (groupsMap.has(groupId)) {
-        groupsMap.get(groupId)!.nodes.push(node);
-      } else {
-        groupsMap.get("none")!.nodes.push(node);
-      }
-    });
-
-    return Array.from(groupsMap.values()).filter((g) => g.nodes.length > 0);
-  }, [displayNodes, nodeGroups]);
   const renderNodeCard = (node: Node, listeners: any) => {
     const expiryMeta = getNodeExpiryMeta(node.expiryTime, node.renewalCycle);
     const connectionStatusMeta = getConnectionStatusMeta(node.connectionStatus);
@@ -2322,6 +2472,7 @@ export default function NodePage() {
         className={`group relative overflow-visible shadow-sm border border-divider hover:shadow-md transition-shadow duration-200 h-full flex flex-col ${
           isExpiryReminderDismissed(node) ? "" : expiryMeta.accentClassName
         }`}
+        data-node-anchor={node.id}
         data-node-card="true"
       >
         <CardHeader className="pb-3 md:pb-3">
@@ -2348,33 +2499,8 @@ export default function NodePage() {
                   </svg>
                 </div>
               </div>
-              {node.groupId && node.groupId > 0 ? (
-                (() => {
-                  const group = (nodeGroups || []).find(
-                    (g: any) => Number(g.id) === Number(node.groupId),
-                  );
-
-                  return group ? (
-                    <div
-                      className="flex-shrink-0 inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium"
-                      style={{
-                        backgroundColor: `${group.color}1A`,
-                        color: group.color,
-                      }}
-                    >
-                      {group.name}
-                    </div>
-                  ) : (
-                    <div className="flex-shrink-0 inline-flex items-center justify-center bg-default-500/10 text-default-500 px-2 py-0.5 rounded text-xs font-medium">
-                      未分组
-                    </div>
-                  );
-                })()
-              ) : (
-                <div className="flex-shrink-0 inline-flex items-center justify-center bg-default-500/10 text-default-500 px-2 py-0.5 rounded text-xs font-medium">
-                  未分组
-                </div>
-              )}
+              {/* Plan 324: the node's groups (same set as the tabs). */}
+              <NodeGroupChips groups={groupsOfNode.get(node.id) || []} />
               <div className="flex-shrink-0">
                 {hasInfoTrigger && (
                   <div className="relative">
@@ -3092,41 +3218,26 @@ export default function NodePage() {
               </>
             ) : (
               <>
-                {/* 卡片视图切换按钮 */}
+                {/* 卡片 ↔ 列表 (plan 324: the 分组 view became the tabs) */}
                 <Button
-                  color={
-                    viewMode === "grid"
-                      ? "primary"
-                      : viewMode === "list"
-                        ? "warning"
-                        : "secondary"
-                  }
+                  color={viewMode === "list" ? "warning" : "primary"}
                   size="sm"
                   variant="flat"
-                  onPress={() => {
-                    // 当前是分组 (grouped) -> 切换到列表 (list)
-                    // 当前是列表 (list) -> 切换到卡片 (grid)
-                    // 当前是卡片 (grid) -> 切换到分组 (grouped)
-                    if (viewMode === "grouped") setViewMode("list");
-                    else if (viewMode === "list") setViewMode("grid");
-                    else setViewMode("grouped");
-                  }}
+                  onPress={() =>
+                    setViewMode(viewMode === "list" ? "grid" : "list")
+                  }
                 >
-                  {/* 按钮显示的是"下一个要切换到的视图"的名称 */}
-                  {viewMode === "grouped"
-                    ? "分组"
-                    : viewMode === "list"
-                      ? "列表"
-                      : "卡片"}
+                  {viewMode === "list" ? "列表" : "卡片"}
                 </Button>
-                {/* 分组管理按钮 */}
+                {/* Plan 324: 管理分组 = the shared 探针 / 节点 groups */}
                 <Button
                   className="bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/45"
+                  data-testid="node-groups-manage"
                   size="sm"
                   variant="flat"
-                  onPress={() => setGroupManagerOpen(true)}
+                  onPress={() => setGroupsManagerOpen(true)}
                 >
-                  分组
+                  管理分组
                 </Button>
                 {/* Plan 255: 线路监测 (admin-only comparison charts) */}
                 <Button
@@ -3156,7 +3267,7 @@ export default function NodePage() {
                   新增
                 </Button>
                 {(nodeFilterMode !== "all" ||
-                  filterGroupId !== null ||
+                  activeGroupTab !== TAB_ALL ||
                   localSearchKeyword.trim()) && (
                   <Button
                     color="warning"
@@ -3164,7 +3275,7 @@ export default function NodePage() {
                     variant="flat"
                     onPress={() => {
                       resetNodeFilterMode();
-                      setFilterGroupId(null);
+                      setGroupTab(TAB_ALL);
                       setLocalSearchKeyword("");
                     }}
                   >
@@ -3175,15 +3286,30 @@ export default function NodePage() {
             )}
           </div>
         </div>
+        {/* Plan 324: group tabs (综合 / groups / 其他) with admin markers */}
+        {nodeList.length > 0 && unifiedGroups.length > 0 && (
+          <NodeGroupTabs
+            selected={activeGroupTab}
+            tabs={groupTabs}
+            onJump={jumpToNode}
+            onSelect={selectGroupTab}
+          />
+        )}
       </div>
-      <NodeGroupManager
-        isOpen={groupManagerOpen}
-        onGroupChange={() => {
+      <NodeGroupsManager
+        data={pageGroups}
+        isOpen={groupsManagerOpen}
+        nodes={nodeList}
+        oldGroupName={oldGroupName}
+        onOpenChange={setGroupsManagerOpen}
+        onSaved={(next) => {
+          setPageGroups(next);
+          // 利群入口 members are node.group_id: refresh the old-group list too.
           loadNodeGroups();
           loadNodes({ silent: true });
         }}
-        onOpenChange={setGroupManagerOpen}
       />
+      {memberGuard.modal}
       {!wsConnected && (
         <Alert
           className="mb-4"
@@ -3228,7 +3354,7 @@ export default function NodePage() {
                     size="sm"
                     variant="flat"
                     onPress={() => {
-                      setFilterGroupId(null);
+                      setGroupTab(TAB_ALL);
                       setNodeFilterMode("all");
                       setLocalSearchKeyword("");
                     }}
@@ -3265,184 +3391,6 @@ export default function NodePage() {
                 </div>
               </div>
             ))}
-          {viewMode === "grouped" &&
-            (groupedNodes.length === 0 ? (
-              <Card className="shadow-sm border border-divider bg-content1">
-                <CardBody className="py-16 flex flex-col items-center justify-center min-h-[200px]">
-                  <h3 className="text-base font-medium text-foreground mb-1">
-                    未找到匹配的节点
-                  </h3>
-                  <p className="text-default-500 text-sm mb-3">
-                    没有符合条件的节点配置，请调整筛选条件
-                  </p>
-                  <Button
-                    color="warning"
-                    size="sm"
-                    variant="flat"
-                    onPress={() => {
-                      setFilterGroupId(null);
-                      setNodeFilterMode("all");
-                      setLocalSearchKeyword("");
-                    }}
-                  >
-                    归零筛选
-                  </Button>
-                </CardBody>
-              </Card>
-            ) : (
-              // Plan 287: clip, not hidden — hidden would stop the open
-              // group header from sticking.
-              <div className="overflow-hidden supports-[overflow:clip]:overflow-clip rounded-xl border border-divider bg-content1 shadow-md">
-                <div className="flex items-center justify-between border-b border-divider bg-default-100/40 px-4 py-3">
-                  <span className="text-sm font-semibold text-foreground">
-                    节点数量
-                  </span>
-                  <span className="text-xs text-default-500">
-                    {displayNodes.length} 个节点
-                  </span>
-                </div>
-                <div className="p-4">
-                  <div className="space-y-4">
-                    {groupedNodes.map(({ group, nodes }) => {
-                      const groupSortableIds = nodes.map((n) => n.id);
-                      const groupIdStr = String(group ? group.id : "none");
-                      const isCollapsed = openNodeGroup !== groupIdStr;
-                      const toggle = () => toggleNodeGroup(groupIdStr);
-
-                      return (
-                        <div
-                          key={groupIdStr}
-                          className={treeGroupWrapperClass(isCollapsed)}
-                          data-group-key={`node-group:${groupIdStr}`}
-                        >
-                          <TreeGroupHeader
-                            className={treeGroupHeaderClass(isCollapsed)}
-                            collapsed={isCollapsed}
-                            onToggle={toggle}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <TreeGroupChevron collapsed={isCollapsed} />
-                              {group ? (
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="w-3 h-3 rounded-full flex-shrink-0"
-                                    style={{ backgroundColor: group.color }}
-                                  />
-                                  <span className="truncate text-sm font-semibold text-foreground">
-                                    {group.name}
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2 ml-1">
-                                  <div className="w-3 h-3 rounded-full bg-gray-300 flex-shrink-0" />
-                                  <span className="truncate text-sm font-semibold text-foreground">
-                                    未分组
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-default-600">
-                                {nodes.length} 个节点
-                              </span>
-                            </div>
-                          </TreeGroupHeader>
-                          {!isCollapsed && (
-                            <div className="">
-                              <DndContext
-                                collisionDetection={pointerWithin}
-                                sensors={sensors}
-                                onDragEnd={handleDragEnd}
-                              >
-                                <SortableContext
-                                  items={groupSortableIds}
-                                  strategy={rectSortingStrategy}
-                                >
-                                  <div className="overflow-x-auto">
-                                    <NodeListView
-                                      treeLine
-                                      copyToClipboard={copyToClipboard}
-                                      displayNodes={nodes}
-                                      filterGroupId={filterGroupId}
-                                      formatTraffic={formatTraffic}
-                                      handleCopyAutoInstallCommand={
-                                        handleCopyDomesticInstallCommand
-                                      }
-                                      handleCopyOfflineInstallCommand={
-                                        handleCopyOfflineInstallCommand
-                                      }
-                                      handleCopyOverseasInstallCommand={
-                                        handleCopyOverseasInstallCommand
-                                      }
-                                      handleDelete={handleDelete}
-                                      handleDismissExpiryReminder={
-                                        handleDismissExpiryReminder
-                                      }
-                                      handleEdit={handleEdit}
-                                      handleResetNodeTraffic={
-                                        handleResetNodeTraffic
-                                      }
-                                      handleViewNodeTrafficLogs={
-                                        handleViewNodeTrafficLogs
-                                      }
-                                      machineOf={machineOf}
-                                      nodeExpiryStats={nodeExpiryStats}
-                                      nodeFilterMode={nodeFilterMode}
-                                      nodeGroups={nodeGroups}
-                                      openDeployModal={openDeployModal}
-                                      openInstallSelector={openInstallSelector}
-                                      openUpgradeModal={openUpgradeModal}
-                                      realtimeNodeMetrics={realtimeNodeMetrics}
-                                      selectedIds={selectedIds}
-                                      setFilterGroupId={setFilterGroupId}
-                                      setNodeFilterMode={setNodeFilterMode}
-                                      toggleSelect={toggleSelect}
-                                      toggleSelectAll={(
-                                        isSelected: boolean,
-                                      ) => {
-                                        if (isSelected) {
-                                          setSelectedIds(
-                                            (prev) =>
-                                              new Set([
-                                                ...prev,
-                                                ...nodes.map((n) => n.id),
-                                              ]),
-                                          );
-                                          if (!selectMode) setSelectMode(true);
-                                        } else {
-                                          setSelectedIds((prev) => {
-                                            const next = new Set(prev);
-
-                                            nodes.forEach((n) =>
-                                              next.delete(n.id),
-                                            );
-                                            if (next.size === 0)
-                                              setSelectMode(false);
-
-                                            return next;
-                                          });
-                                        }
-                                      }}
-                                      upgradeProgress={upgradeProgress}
-                                    />
-                                  </div>
-                                </SortableContext>
-                              </DndContext>
-                            </div>
-                          )}
-                          {!isCollapsed && (
-                            <TreeGroupFooter
-                              name={group ? group.name : "未分组"}
-                              onToggle={toggle}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ))}
           {viewMode === "list" && (
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
               <SortableContext
@@ -3452,8 +3400,10 @@ export default function NodePage() {
                 <NodeListView
                   copyToClipboard={copyToClipboard}
                   displayNodes={displayNodes}
-                  filterGroupId={filterGroupId}
                   formatTraffic={formatTraffic}
+                  groupChips={(node) => (
+                    <NodeGroupChips groups={groupsOfNode.get(node.id) || []} />
+                  )}
                   handleCopyAutoInstallCommand={
                     handleCopyDomesticInstallCommand
                   }
@@ -3471,13 +3421,11 @@ export default function NodePage() {
                   machineOf={machineOf}
                   nodeExpiryStats={nodeExpiryStats}
                   nodeFilterMode={nodeFilterMode}
-                  nodeGroups={nodeGroups}
                   openDeployModal={openDeployModal}
                   openInstallSelector={openInstallSelector}
                   openUpgradeModal={openUpgradeModal}
                   realtimeNodeMetrics={realtimeNodeMetrics}
                   selectedIds={selectedIds}
-                  setFilterGroupId={setFilterGroupId}
                   setNodeFilterMode={setNodeFilterMode}
                   toggleSelect={toggleSelect}
                   toggleSelectAll={handleSelectAllToggle}
@@ -3647,42 +3595,12 @@ export default function NodePage() {
                   onChange={(event) => setForm((prev) => ({ ...prev, regionCity: event.target.value }))}
                 />
               </div>
-              <Select
-                description="将节点分配到指定分组（可选）"
-                label="分组"
-                placeholder="选择分组"
-                selectedKeys={
-                  form.groupId && form.groupId > 0 ? [String(form.groupId)] : []
-                }
-                variant="bordered"
-                onSelectionChange={(keys) => {
-                  const selected = Array.from(keys)[0] as string | undefined;
-
-                  setForm((prev) => ({
-                    ...prev,
-                    groupId:
-                      selected && selected !== "" ? parseInt(selected) : null,
-                  }));
-                }}
-              >
-                <SelectItem key="" textValue="未分组">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-gray-300" />
-                    <span>未分组</span>
-                  </div>
-                </SelectItem>
-                {nodeGroups.map((group) => (
-                  <SelectItem key={group.id} textValue={group.name}>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: group.color }}
-                      />
-                      <span>{group.name}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </Select>
+              {/* Plan 324: unified groups (探针 groups + 利群入口), multi-select */}
+              <NodeEditGroupPicker
+                groups={unifiedGroups}
+                selected={formGroupIds}
+                onToggle={toggleFormGroup}
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Select
                   description="支持月、季、半年、年四种周期"
@@ -4696,7 +4614,6 @@ export default function NodePage() {
                   variant="flat"
                   onPress={() => {
                     resetNodeFilterMode();
-                    setFilterGroupId(null);
                   }}
                 >
                   归零
@@ -4793,47 +4710,6 @@ export default function NodePage() {
           {/* <ModalFooter>
             <Button onPress={() => setOfflineModalOpen(false)}>知道了</Button>
           </ModalFooter> */}
-        </ModalContent>
-      </Modal>
-      <Modal
-        isOpen={groupSelectorNode !== null}
-        size="sm"
-        onOpenChange={() => setGroupSelectorNode(null)}
-      >
-        <ModalContent>
-          <ModalHeader>选择分组</ModalHeader>
-          <ModalBody>
-            <div className="flex flex-wrap gap-2 pb-4">
-              <Chip
-                key="none"
-                className="cursor-pointer hover:opacity-80"
-                size="sm"
-                variant="flat"
-                onClick={() =>
-                  handleAssignNodeToGroup(groupSelectorNode!, null)
-                }
-              >
-                未分组
-              </Chip>
-              {nodeGroups.map((group) => (
-                <Chip
-                  key={group.id}
-                  className="cursor-pointer hover:opacity-80"
-                  size="sm"
-                  style={{
-                    backgroundColor: `${group.color}20`,
-                    color: group.color,
-                  }}
-                  variant="flat"
-                  onClick={() =>
-                    handleAssignNodeToGroup(groupSelectorNode!, group.id)
-                  }
-                >
-                  {group.name}
-                </Chip>
-              ))}
-            </div>
-          </ModalBody>
         </ModalContent>
       </Modal>
     </AnimatedPage>
