@@ -30,7 +30,7 @@ Branch `feature/3.0.27-327-my-nodes-tree` (from fork.179 branch @ 0c3b70d8). Pan
 - [x] Forward page: 复制地址 / 复制链接 › / 复制一条 (table, compact table, cards)
 - [x] go test ./... + contract tests, npm run build (tsc + vite) + eslint on changed files
 - [x] Lab + screenshots (desktop 1440 + 390 phone, light + dark) a–i, gallery /root/mmwx-preview/my-nodes-tree/
-- [ ] Push, CI green, ledger row 327 待用户看图, summary
+- [x] Push, CI green (CI 46142416717: frontend, backend, PG contract, agent all green), ledger row 327 待用户看图, summary
 
 ## What changed
 
