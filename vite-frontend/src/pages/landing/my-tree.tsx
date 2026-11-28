@@ -285,9 +285,14 @@ export function ExternalNodeCard({
   compact: boolean;
   onLocateNode: (nodeId: number) => void;
 }) {
-  const address =
+  const full =
     card.host && card.port
       ? `${card.host.includes(":") ? `[${card.host}]` : card.host}:${card.port}`
+      : "";
+  // a pasted (virtual) card is already named after its host:port: don't repeat it
+  const address =
+    full && full !== card.name && `${card.host}:${card.port}` !== card.name
+      ? full
       : "";
 
   return (

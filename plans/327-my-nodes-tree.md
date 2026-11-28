@@ -89,3 +89,12 @@ Frontend:
 
 Panel only (backend binary + frontend), no DB migration, no agent / OTA. Waits for the user's OK on the
 screenshots.
+
+## Follow-up: shots of the 未加入外部节点列表 case (shot4, 2026-11-28)
+
+- [x] Lab seed: pasted-link 线路机 forward 「朋友的香港节点」 (VLESS Reality, not in the 外部节点 list).
+- [x] Shots j-virtual-external-* / j-virtual-arrival-* (light + dark, 1440 + 390) and
+      k-user-no-chain-server-desktop-light (stitched: one group opens at a time); 15 lab checks ok.
+- [x] Fix: the virtual card showed host:port twice (name = address, then the address again);
+      my-tree.tsx now skips the address when the name already is it.
+- [x] Gallery sections j / k added after d.
