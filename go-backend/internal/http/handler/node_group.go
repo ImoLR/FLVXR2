@@ -167,6 +167,12 @@ func (h *NodeGroupHandler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Plan 324: 利群汇聚 picks its entry machines from this group.
+	if s, err := h.repo.GetLeiKwanSetting(); err == nil && s != nil && s.EntryGroupID > 0 && s.EntryGroupID == req.ID {
+		response.WriteJSON(w, response.ErrDefault(errLeiKwanGroupDelete.Error()))
+		return
+	}
+
 	if err := h.repo.DeleteNodeGroup(req.ID); err != nil {
 		response.WriteJSON(w, response.Err(-2, err.Error()))
 		return

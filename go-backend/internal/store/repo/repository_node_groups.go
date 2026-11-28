@@ -134,3 +134,31 @@ func (r *Repository) GetNodeGroupCount(groupID int64) (int64, error) {
 	err := r.db.Model(&model.Node{}).Where("group_id = ?", groupID).Count(&count).Error
 	return count, err
 }
+
+// SetNodeGroupMembers (plan 324, the 节点 page 利群入口 group): renames the
+// group (name "" = keep) and moves nodes in (group_id = id, replacing another
+// group) and out (group_id NULL, only while still in this group), all in one
+// transaction.
+func (r *Repository) SetNodeGroupMembers(id int64, name string, add, remove []int64) error {
+	if r == nil || r.db == nil {
+		return errors.New("repository not initialized")
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if name != "" {
+			if err := tx.Model(&model.NodeGroup{}).Where("id = ?", id).Updates(map[string]interface{}{"name": name, "updated_time": time.Now().Unix()}).Error; err != nil {
+				return err
+			}
+		}
+		if len(add) > 0 {
+			if err := tx.Model(&model.Node{}).Where("id IN ?", add).Update("group_id", id).Error; err != nil {
+				return err
+			}
+		}
+		if len(remove) > 0 {
+			if err := tx.Model(&model.Node{}).Where("id IN ? AND group_id = ?", remove, id).Update("group_id", gorm.Expr("NULL")).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

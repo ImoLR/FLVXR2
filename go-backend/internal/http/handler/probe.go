@@ -355,17 +355,9 @@ func normalizeProbeGroups(groups []probeGroup, known, knownOld map[int64]bool) (
 		}
 	}
 	for _, g := range groups {
-		name := strings.TrimSpace(g.Name)
-		if name == "" {
-			return nil, errors.New("分组名不能为空")
-		}
-		if n := utf8.RuneCountInString(name); n > probeGroupNameMax || !utf8.ValidString(name) {
-			return nil, errors.New("分组名最多 20 个字")
-		}
-		for _, r := range name {
-			if unicode.IsControl(r) || r == ' ' || r == ' ' {
-				return nil, errors.New("分组名不能包含控制字符")
-			}
+		name, err := cleanProbeGroupName(g.Name)
+		if err != nil {
+			return nil, err
 		}
 		lower := strings.ToLower(name)
 		if names[lower] {
@@ -394,6 +386,24 @@ func normalizeProbeGroups(groups []probeGroup, known, knownOld map[int64]bool) (
 		out = append(out, probeGroup{ID: id, Name: name, Nodes: members, Old: old})
 	}
 	return out, nil
+}
+
+// cleanProbeGroupName: a group name trimmed, 1–20 characters, no control
+// characters (plan 324: the 节点 page's 利群入口 name follows the same rule).
+func cleanProbeGroupName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", errors.New("分组名不能为空")
+	}
+	if n := utf8.RuneCountInString(name); n > probeGroupNameMax || !utf8.ValidString(name) {
+		return "", errors.New("分组名最多 20 个字")
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return "", errors.New("分组名不能包含控制字符")
+		}
+	}
+	return name, nil
 }
 
 func probeGroupMembers(ids []int64, known map[int64]bool, group string) ([]int64, error) {

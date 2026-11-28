@@ -323,6 +323,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	h.registerDDNS(mux)
 	h.registerUserSubdomain(mux) // plan 303
 	h.registerProbe(mux)
+	h.registerNodePageGroups(mux) // plan 324
 	h.registerTelegramBot(mux)
 	h.registerSwitchMargins(mux)
 	mux.HandleFunc(StaleFrontendKickPath, h.staleFrontendKick)
