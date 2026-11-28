@@ -131,13 +131,19 @@ export function useLeiKwanMemberGuard(
             <ModalBody>
               <p className="text-sm" data-guard-message="true">
                 {state.name} 正在被利群汇聚用作 {state.uses.join("、")}
-                ，请先到利群汇聚换主入口。
+                ，请先到利群汇聚换主入口
+                {state.uses.some((u) => u.includes("宽限"))
+                  ? "（宽限中的旧入口等宽限结束后再移出）"
+                  : ""}
+                。
               </p>
-              <ul className="list-disc space-y-0.5 pl-5 text-xs text-default-600">
-                {state.uses.map((u) => (
-                  <li key={u}>{u}</li>
-                ))}
-              </ul>
+              {state.uses.length > 1 && (
+                <ul className="list-disc space-y-0.5 pl-5 text-xs text-default-600">
+                  {state.uses.map((u) => (
+                    <li key={u}>{u}</li>
+                  ))}
+                </ul>
+              )}
             </ModalBody>
             <ModalFooter>
               <Button color="danger" variant="flat" onPress={close}>

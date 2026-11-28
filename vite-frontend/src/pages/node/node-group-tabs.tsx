@@ -185,7 +185,7 @@ function AttentionMarker({
       <DropdownTrigger>
         <button
           aria-label={`${tab.name}：${a.count} 台机器有问题`}
-          className={`-ml-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-r-full py-0 pl-1.5 pr-2 text-[11px] font-bold tabular-nums transition-colors ${tab.tone} ${red ? "text-red-700 dark:text-red-300" : "text-amber-700 dark:text-amber-300"} hover:brightness-95`}
+          className={`inline-flex h-7 shrink-0 items-center gap-0.5 rounded-r-full py-0 pl-1.5 pr-2 text-[11px] font-bold tabular-nums transition-colors ${red ? "bg-red-500/20 text-red-700 hover:bg-red-500/30 dark:bg-red-500/30 dark:text-red-200" : "bg-amber-400/25 text-amber-800 hover:bg-amber-400/35 dark:bg-amber-400/25 dark:text-amber-200"}`}
           data-group-marker={a.level}
           type="button"
         >
@@ -291,7 +291,7 @@ export function NodeGroupTabs({
       <div
         ref={stripRef}
         aria-label="节点分组"
-        className="flvx-hide-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0"
+        className="flvx-hide-scrollbar -mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1 py-1 max-sm:[mask-image:linear-gradient(to_right,black_88%,transparent)] max-sm:pr-8 sm:flex-wrap sm:overflow-visible"
         role="tablist"
       >
         {tabs.map((t) => {
@@ -345,17 +345,18 @@ export function flashNode(nodeId: number) {
       return;
     }
     el.scrollIntoView({ block: "center", behavior: "smooth" });
-    el.animate?.(
-      [
-        { boxShadow: "0 0 0 0 rgba(245, 158, 11, 0)" },
-        { boxShadow: "0 0 0 4px rgba(245, 158, 11, 0.85)" },
-        { boxShadow: "0 0 0 0 rgba(245, 158, 11, 0)" },
-      ],
-      { duration: 900, iterations: 3 },
-    );
+    // A ring for ~2.5 s (outline: never shifts the layout).
+    el.style.outline = "3px solid rgb(245 158 11 / 0.9)";
+    el.style.outlineOffset = "3px";
+    window.setTimeout(() => {
+      el.style.outline = "";
+      el.style.outlineOffset = "";
+    }, 2500);
   };
 
-  window.setTimeout(go, 30);
+  // After the popover closed and gave focus back to its trigger (that focus
+  // would scroll back up).
+  window.setTimeout(go, 250);
 }
 
 /** Card / list 「分组」 chip: the node's first group (+N), or 「未分组」. */
