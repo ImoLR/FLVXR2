@@ -49,7 +49,10 @@ export function ForwardExternalBadges({
   if (!external) return null;
 
   return (
-    <span className="inline-flex flex-wrap items-center gap-1" data-external-badges>
+    <span
+      data-external-badges
+      className="inline-flex flex-wrap items-center gap-1"
+    >
       <span
         className="inline-flex items-center whitespace-nowrap rounded-full bg-cyan-500/15 px-2 text-[10px] font-semibold leading-[18px] text-cyan-700 dark:bg-cyan-400/15 dark:text-cyan-300"
         title={`端口转发到你的外部节点「${external.name}」（${external.address}），复制链接 / 订阅里的地址是入口地址`}
@@ -104,8 +107,8 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
       {external && <ForwardExternalBadges external={external} />}
       {external && (
         <span
-          className="min-w-0 truncate text-xs text-default-500"
           data-external-target-name
+          className="min-w-0 truncate text-xs text-default-500"
           title={`目标：外部节点「${external.name}」 ${external.address}`}
         >
           → {external.name}
@@ -161,9 +164,14 @@ export function ForwardLineBadges({ forward }: { forward: ChainRow }) {
 export function ChainLinkButton({
   forward,
   className,
+  ring = false,
+  onPressed,
 }: {
   forward: ChainRow;
   className?: string;
+  /** Plan 327: arrival from the forward page 「复制链接 ›」 (我的节点 tree). */
+  ring?: boolean;
+  onPressed?: () => void;
 }) {
   const [links, setLinks] = useState<LinkCardLink[]>([]);
   const [open, setOpen] = useState(false);
@@ -251,17 +259,19 @@ export function ChainLinkButton({
         ref={linkHint.ref}
         className={`relative ${className || "min-h-7 px-2"}`}
         color="success"
+        data-chain-link={forward.id}
         isLoading={loading}
         size="sm"
         title="复制链接"
         variant="flat"
         onPress={() => {
           linkHint.complete();
+          onPressed?.();
           void load();
         }}
       >
         复制链接
-        <OnboardingRing active={linkHint.active} />
+        <OnboardingRing active={linkHint.active || ring} />
       </Button>
       <Modal
         isOpen={open}

@@ -2910,3 +2910,218 @@ td.flvx-rule-tree-dim > * {
     color-mix(in srgb, var(--primary-900) 40%, transparent)
   );
 }
+
+/* Plan 327: 我的节点 tree. Node cards hang off the open server group's teal
+   line (one column, `flvx-landing-tree-one`); under each card its children
+   (转发 / 链式出口; 外部节点: 线路机加速 / 端口转发) hang off a thin violet line
+   with an elbow per row and a rounded └ on the last one (mmwx relay-row
+   look in FLVX colours). Pure CSS on the rows that exist (no listeners). */
+.flvx-landing-tree-one {
+  --flvx-tree-elbow: 11px;
+  --flvx-tree-leaf-y: 27px;
+  padding-right: 12px;
+  padding-bottom: 12px;
+}
+
+@media (max-width: 767.98px) {
+  .flvx-landing-tree-one {
+    --flvx-tree-leaf-y: 24px;
+    padding-right: 8px;
+  }
+}
+
+.flvx-mytree-ext .flvx-landing-tree-one {
+  --flvx-tree-leaf-y: 21px;
+}
+
+.flvx-mytree-kids {
+  --flvx-kid-line: rgba(139, 92, 246, 0.45);
+  --flvx-kid-tint: rgba(139, 92, 246, 0.05);
+  --flvx-kid-border: rgba(139, 92, 246, 0.16);
+  --flvx-kid-y: 18px;
+  position: relative;
+  margin-left: 16px;
+  padding-left: 16px;
+  padding-top: 6px;
+}
+
+.flvx-mytree-kids-ext {
+  --flvx-kid-line: rgba(6, 182, 212, 0.5);
+  --flvx-kid-tint: rgba(6, 182, 212, 0.05);
+  --flvx-kid-border: rgba(6, 182, 212, 0.18);
+}
+
+.dark .flvx-mytree-kids {
+  --flvx-kid-line: rgba(167, 139, 250, 0.5);
+  --flvx-kid-tint: rgba(167, 139, 250, 0.07);
+  --flvx-kid-border: rgba(167, 139, 250, 0.2);
+}
+
+.dark .flvx-mytree-kids-ext {
+  --flvx-kid-line: rgba(34, 211, 238, 0.5);
+  --flvx-kid-tint: rgba(34, 211, 238, 0.06);
+  --flvx-kid-border: rgba(34, 211, 238, 0.2);
+}
+
+.flvx-mytree-kid {
+  position: relative;
+}
+
+.flvx-mytree-kid + .flvx-mytree-kid {
+  margin-top: 6px;
+}
+
+.flvx-mytree-kid::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: -6px;
+  bottom: 0;
+  width: 2px;
+  background: var(--flvx-kid-line);
+  pointer-events: none;
+}
+
+.flvx-mytree-kid::after {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: var(--flvx-kid-y);
+  width: 13px;
+  height: 2px;
+  background: var(--flvx-kid-line);
+  pointer-events: none;
+}
+
+.flvx-mytree-kid:last-child::before {
+  bottom: auto;
+  height: calc(var(--flvx-kid-y) + 8px);
+  width: 13px;
+  background: none;
+  border-left: 2px solid var(--flvx-kid-line);
+  border-bottom: 2px solid var(--flvx-kid-line);
+  border-bottom-left-radius: 7px;
+}
+
+.flvx-mytree-kid:last-child::after {
+  display: none;
+}
+
+.flvx-mytree-kid-box {
+  background: var(--flvx-kid-tint);
+  border: 1px solid var(--flvx-kid-border);
+}
+
+.flvx-mytree-kid-fold {
+  --flvx-kid-y: 13px;
+}
+
+.flvx-mytree-fold {
+  background: var(--flvx-kid-tint);
+  border: 1px dashed var(--flvx-kid-border);
+  color: rgb(109, 40, 217);
+}
+
+.flvx-mytree-kids-ext .flvx-mytree-fold {
+  color: rgb(14, 116, 144);
+}
+
+.dark .flvx-mytree-fold {
+  color: rgb(196, 181, 253);
+}
+
+.dark .flvx-mytree-kids-ext .flvx-mytree-fold {
+  color: rgb(103, 232, 249);
+}
+
+/* Arrival (复制链接 › on the forward page) / jumps: a pulsing gold outline,
+   same gold as the onboarding ring; the 复制链接 button gets the ring itself.
+   Outline, not box-shadow: the luminous theme pins cards' / groups' shadows
+   with !important. */
+.flvx-mytree-glow {
+  outline: 2px solid #f2a900;
+  outline-offset: 2px;
+  animation: flvx-mytree-glow 1.8s ease-in-out infinite;
+}
+
+.dark .flvx-mytree-glow {
+  outline-color: #fcc419;
+}
+
+@keyframes flvx-mytree-glow {
+  50% {
+    outline-color: rgba(242, 169, 0, 0.35);
+    outline-offset: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flvx-mytree-glow {
+    animation: none;
+  }
+}
+
+/* 我的外部节点: indigo instead of teal (accent, sticky header, line, footer). */
+.flvx-mytree-ext {
+  --flvx-tree-line: rgba(79, 70, 229, 0.4);
+}
+
+.dark .flvx-mytree-ext {
+  --flvx-tree-line: rgba(129, 140, 248, 0.5);
+}
+
+.flvx-mytree-ext > [data-group-header][aria-expanded="false"] {
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.dark .flvx-mytree-ext > [data-group-header][aria-expanded="false"] {
+  background: rgba(129, 140, 248, 0.09);
+}
+
+.flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open,
+.flvx-mobile-main .flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open.rounded-lg.border {
+  border-color: rgba(79, 70, 229, 0.45) !important;
+}
+
+.flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open::before {
+  background: #6366f1;
+}
+
+.dark .flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open,
+.dark .flvx-mobile-main .flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open.rounded-lg.border {
+  border-color: rgba(129, 140, 248, 0.42) !important;
+}
+
+.dark .flvx-rule-group.flvx-mytree-ext.flvx-rule-group-open::before {
+  background: #818cf8;
+}
+
+.flvx-mytree-ext > .flvx-rule-group-head-open {
+  background: #f1f1fd;
+  border-bottom-color: rgba(79, 70, 229, 0.2);
+}
+
+.dark .flvx-mytree-ext > .flvx-rule-group-head-open {
+  background: #1b1d3a;
+  border-bottom-color: rgba(129, 140, 248, 0.2);
+}
+
+.flvx-mytree-ext > .flvx-rule-group-footer {
+  border-top-color: rgba(79, 70, 229, 0.14);
+  background: rgba(241, 241, 253, 0.7);
+}
+
+.flvx-mytree-ext .flvx-rule-group-footer-pill {
+  background: rgba(99, 102, 241, 0.13);
+  color: #4338ca;
+}
+
+.dark .flvx-mytree-ext > .flvx-rule-group-footer {
+  border-top-color: rgba(129, 140, 248, 0.14);
+  background: rgba(27, 29, 58, 0.55);
+}
+
+.dark .flvx-mytree-ext .flvx-rule-group-footer-pill {
+  background: rgba(129, 140, 248, 0.15);
+  color: #a5b4fc;
+}

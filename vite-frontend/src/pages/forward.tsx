@@ -1,6 +1,7 @@
 ﻿import { useLocation } from "react-router-dom";
 import { RuleLandingTarget, LandingTargetValue } from "@/pages/landing/rule-target";
-import { ChainLinkButton, ForwardLineBadges } from "@/pages/landing/chain-links";
+import { ForwardLineBadges } from "@/pages/landing/chain-links";
+import { ForwardLinkAction, forwardLinkKind } from "@/pages/forward/link-actions";
 import {
   RULE_BEST_OFF_CHANGED,
   RuleBestOffBadge,
@@ -1143,6 +1144,7 @@ const SortableTableRow = ({
   formatSpeed,
   isAdmin,
   togglingIds,
+  showAddressModal,
 }: any) => {
   const {
     attributes,
@@ -1447,11 +1449,11 @@ const SortableTableRow = ({
             className="min-h-7 px-2"
             color="warning"
             size="sm"
-            title="复制"
+            title="复制一条（新建一条相同设置的转发）"
             variant="flat"
             onPress={() => handleCopy(forward)}
           >
-            复制
+            复制一条
           </Button>
           <Button
             className="min-h-7 px-2"
@@ -1463,7 +1465,10 @@ const SortableTableRow = ({
           >
             诊断
           </Button>
-          <ChainLinkButton forward={forward} />
+          <ForwardLinkAction
+            forward={forward}
+            showAddressModal={showAddressModal}
+          />
           <Button
             className="min-h-7 px-2"
             color="danger"
@@ -1494,6 +1499,7 @@ const SortableCompactTableRow = ({
   formatSpeed,
   isAdmin,
   togglingIds,
+  showAddressModal,
 }: any) => {
   const {
     attributes,
@@ -1800,11 +1806,11 @@ const SortableCompactTableRow = ({
             className="min-h-7 px-2"
             color="warning"
             size="sm"
-            title="复制"
+            title="复制一条（新建一条相同设置的转发）"
             variant="flat"
             onPress={() => handleCopy(forward)}
           >
-            复制
+            复制一条
           </Button>
           <Button
             className="min-h-7 px-2"
@@ -1816,7 +1822,10 @@ const SortableCompactTableRow = ({
           >
             诊断
           </Button>
-          <ChainLinkButton forward={forward} />
+          <ForwardLinkAction
+            forward={forward}
+            showAddressModal={showAddressModal}
+          />
           <Button
             className="min-h-7 px-2"
             color="danger"
@@ -5712,9 +5721,10 @@ export default function ForwardPage() {
               color="warning"
               size="sm"
               variant="flat"
+              title="复制一条（新建一条相同设置的转发）"
               onPress={() => handleCopy(forward)}
             >
-              复制
+              复制一条
             </Button>
             <Button
               className="flex-1 min-h-8 flex-shrink-0 max-md:min-w-0"
@@ -5735,11 +5745,13 @@ export default function ForwardPage() {
               删除
             </Button>
           </div>
-          {(forward.chain?.state === "active" ||
-            (!forward.chain &&
-              Boolean(forward.landingNodeId || forward.externalNode))) && (
+          {forwardLinkKind(forward) && (
             <div className="mt-1.5 flex">
-              <ChainLinkButton className="flex-1 min-h-8" forward={forward} />
+              <ForwardLinkAction
+                className="flex-1 min-h-8"
+                forward={forward}
+                showAddressModal={showAddressModal}
+              />
             </div>
           )}
         </CardBody>
@@ -6015,7 +6027,7 @@ export default function ForwardPage() {
               {filterTunnelSections.map((section) => (
                 <SelectSection
                   key={section.key}
-                  description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                  description={isAdmin && section.region === "" ? "出口节点未设置地区，可在服务器页设置" : undefined}
                   title={section.label}
                   tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
                 >
@@ -6193,7 +6205,7 @@ export default function ForwardPage() {
                             {filterTunnelSections.map((section) => (
                               <SelectSection
                                 key={section.key}
-                                description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                                description={isAdmin && section.region === "" ? "出口节点未设置地区，可在服务器页设置" : undefined}
                                 title={section.label}
                                 tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
                               >
@@ -6614,6 +6626,7 @@ export default function ForwardPage() {
                                             >
                                               <SortableTableRow
                                                 copyToClipboard={copyToClipboard}
+                                                showAddressModal={showAddressModal}
                                                 formatFlow={formatFlow}
                                                 formatSpeed={formatSpeed}
                                                 forward={forward}
@@ -6810,7 +6823,7 @@ export default function ForwardPage() {
                       {formTunnelSections.map((section) => (
                         <SelectSection
                           key={section.key}
-                          description={isAdmin && section.region === "" ? "出口节点未设置地区，可在节点页设置" : undefined}
+                          description={isAdmin && section.region === "" ? "出口节点未设置地区，可在服务器页设置" : undefined}
                           title={section.label}
                           tooltip={section.region === MULTI_REGION ? exitRegionLabel(section.options.flatMap(({ tunnel }) => tunnel.exitRegions || [])) : undefined}
                         >

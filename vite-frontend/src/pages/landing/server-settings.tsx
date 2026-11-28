@@ -748,7 +748,7 @@ export function ServerSettings({
                 {scan === "core" &&
                   mark(has("core-upgrade") ? "core-upgrade" : "scan-core")}
                 {scan === "agent" &&
-                  "禁止端口扫描未生效：需要先在「节点」页升级这台服务器的节点程序。"}
+                  "禁止端口扫描未生效：需要先在「服务器」页升级这台服务器的节点程序。"}
                 {scan === "error" &&
                   "禁止端口扫描检测异常：读取落地 Core 的扫描记录失败。"}
                 {scan === "core" &&

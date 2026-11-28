@@ -438,7 +438,7 @@ export const LandingUserSettings = forwardRef<
               <Select
                 description={
                   form.maxNodesSource === "global"
-                    ? "使用落地页「全局设置」的默认值，全局值修改后立即生效"
+                    ? "使用服务器页「落地全局设置」的默认值，全局值修改后立即生效"
                     : "该用户单独的数量，不随全局值变化"
                 }
                 label="可建落地节点总数"

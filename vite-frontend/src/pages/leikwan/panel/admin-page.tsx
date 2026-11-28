@@ -1451,7 +1451,7 @@ export function LeiKwanAdminView() {
               </div>
               {hostList.length === 0 && (
                 <p className="text-sm text-default-500">
-                  分组里还没有节点：在节点页把节点拉进这个组
+                  分组里还没有节点：在服务器页把节点拉进这个组
                 </p>
               )}
               <p className="text-xs leading-relaxed text-default-500">
@@ -1963,7 +1963,7 @@ function AdminPhone({
               分组「{hosts?.entryGroupName || "利群入口"}」
             </Pill>
             <span className="text-xs text-default-500">
-              加入口机 = 在节点页把节点拉进这个组
+              加入口机 = 在服务器页把节点拉进这个组
             </span>
           </div>
           {phoneCtx && (

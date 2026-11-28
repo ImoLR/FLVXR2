@@ -1,4 +1,14 @@
-import { EnableLandingButton } from "@/pages/landing/enable-button";
+import {
+  EnableLandingButton,
+  LandingAttentionContext,
+} from "@/pages/landing/enable-button";
+import {
+  ServerPageBar,
+  ServerPageNotices,
+  ServerPagePanel,
+  ServerPagePanelView,
+  useServerPageLanding,
+} from "@/pages/node/landing-panels";
 import type {
   LeiKwanNodeDetection,
   MachineView,
@@ -1182,7 +1192,21 @@ export default function NodePage() {
   useEffect(() => {
     loadNodes();
   }, [loadNodes]);
-  usePullToRefresh(loadNodes);
+  // Plan 327: 服务器 | 出站与路由 | 妙妙屋接入 (never remembered: every visit
+  // opens 服务器) + the landing notices / ⚠ that moved here from 落地.
+  const [serverPanel, setServerPanel] = useState<ServerPagePanel>("servers");
+  const [egressReload, setEgressReload] = useState(0);
+  const landing = useServerPageLanding();
+  const refreshPage = useCallback(async () => {
+    if (serverPanel === "egress") {
+      setEgressReload((value) => value + 1);
+
+      return;
+    }
+    await Promise.all([loadNodes(), landing.reload()]);
+  }, [serverPanel, loadNodes, landing.reload]);
+
+  usePullToRefresh(refreshPage);
   useEffect(() => {
     if (!usingPollingFallback) {
       return;
@@ -3144,6 +3168,22 @@ export default function NodePage() {
 
   return (
     <AnimatedPage className="px-3 lg:px-6 py-8">
+      <LandingAttentionContext.Provider value={landing.attention}>
+      <ServerPageBar panel={serverPanel} onPanel={setServerPanel} />
+      <ServerPageNotices
+        attention={landing.attention}
+        nodes={landing.nodes}
+        servers={landing.servers}
+      />
+      <ServerPagePanelView
+        panel={serverPanel}
+        reloadKey={egressReload}
+        onSynced={() => void landing.reload()}
+      />
+      <div
+        className={serverPanel === "servers" ? undefined : "hidden"}
+        data-server-panel-view="servers"
+      >
       <div className="mb-6 space-y-3">
         <div className="flex flex-row items-center gap-3 overflow-x-auto pb-1">
           <div className="flex items-center gap-2">
@@ -3436,6 +3476,8 @@ export default function NodePage() {
           )}
         </>
       )}
+      </div>
+      </LandingAttentionContext.Provider>
       {/* 新增/编辑节点对话框 */}
       <Modal
         isOpen={tlsManagerOpen}

@@ -118,7 +118,7 @@ export function VendorBlockSection({
     onSaved?.(res.data);
   };
   const hint = admin
-    ? "每台落地只屏蔽托管它的那家 VPS 厂商自己的官网、客户中心、账单、工单和面板（含子域名），防止有人借这台机器的 IP 攻击厂商、导致整个账号被封。厂商在节点页「编辑节点 → VPS 厂商」里选（必填，可多选），妙妙屋共享在服务器「设置」里选；不影响其它网站，也不影响落地本机。"
+    ? "每台落地只屏蔽托管它的那家 VPS 厂商自己的官网、客户中心、账单、工单和面板（含子域名），防止有人借这台机器的 IP 攻击厂商、导致整个账号被封。厂商在服务器页「编辑节点 → VPS 厂商」里选（必填，可多选），妙妙屋共享在服务器「设置」里选；不影响其它网站，也不影响落地本机。"
     : "这台落地不能访问它所在 VPS 厂商自己的官网、客户中心和面板（含子域名），其它网站不受影响。";
 
   return (
@@ -281,7 +281,7 @@ function NodeEditLink({ nodeId, label }: { nodeId?: number; label?: string }) {
       data-vendor-node-link={nodeId || ""}
       to={nodeEditHref(nodeId)}
     >
-      {label || "到节点页修改"}
+      {label || "到服务器页修改"}
     </Link>
   );
 }
@@ -334,7 +334,7 @@ export function VendorFromNode({
         </p>
       )}
       <p className="text-xs text-default-500">
-        厂商在节点页「编辑节点 → VPS 厂商」里选，域名在「全局规则 → 内置 →
+        厂商在服务器页「编辑节点 → VPS 厂商」里选，域名在「全局规则 → 内置 →
         管理厂商」里维护。 <NodeEditLink nodeId={server.nodeId} />
       </p>
     </div>
@@ -353,7 +353,7 @@ function NativeServerVendor({ s }: { s: VendorBlockServer }) {
         !other && <Pill tone="amber">未设置</Pill>
       )}
       {other && <Pill tone="red">其他「{other}」</Pill>}
-      <NodeEditLink label="在节点页改" nodeId={s.nodeId} />
+      <NodeEditLink label="在服务器页改" nodeId={s.nodeId} />
     </div>
   );
 }
@@ -476,7 +476,7 @@ function VendorManager({
             <h3 className="text-sm font-medium">每台落地服务器的厂商</h3>
             <p className="text-xs text-default-500">
               只屏蔽这台服务器自己的厂商；未设置的不屏蔽（卡片上显示
-              ⚠）。自有落地跟随它的节点，在节点页「编辑节点 → VPS
+              ⚠）。自有落地跟随它的节点，在服务器页「编辑节点 → VPS
               厂商」里改；妙妙屋共享在这里或服务器「设置 → 出站与路由」里选。
             </p>
             <div className="divide-y divide-divider rounded-lg border border-divider">

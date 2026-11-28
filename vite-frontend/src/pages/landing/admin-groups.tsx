@@ -530,14 +530,15 @@ export function NodeServerHeaderContent({
  * card of every grid row; the grid and the cards themselves are unchanged.
  * `cols` names the grid's column rule the elbows follow: "auto" = the
  * `flvx-card-grid` auto-fill tracks (container query on the wrapper), "md2" =
- * one column, two from the md breakpoint.
+ * one column, two from the md breakpoint; "one" = one column (plan 327 我的节点
+ * tree: each item is a node card with its child rows under it).
  */
 export function LandingCardTree({
   cols,
   gridClassName,
   items,
 }: {
-  cols: "auto" | "md2";
+  cols: "auto" | "md2" | "one";
   gridClassName: string;
   items: { key: string | number; node: ReactNode }[];
 }) {

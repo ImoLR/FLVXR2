@@ -286,7 +286,7 @@ export function TelegramBotCard() {
             <h2 className="text-lg font-semibold">Telegram 通知</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               机器快到期时，bot 在 Telegram
-              里提醒绑定的管理员；点「已续费」后这一期不再提醒（节点页的到期提醒也一起消掉），过了到期日自动进入下一期。
+              里提醒绑定的管理员；点「已续费」后这一期不再提醒（服务器页的到期提醒也一起消掉），过了到期日自动进入下一期。
             </p>
           </div>
           {status && (
@@ -590,7 +590,7 @@ export function TelegramBotCard() {
               {view && view.noExpiry > 0 && (
                 <>
                   另外 {view.noExpiry}{" "}
-                  台没有设置到期时间，不会提醒（在节点页设置到期时间和续费周期）。
+                  台没有设置到期时间，不会提醒（在服务器页设置到期时间和续费周期）。
                 </>
               )}
               {view?.oldPanel === "ok" &&

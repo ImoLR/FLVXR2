@@ -102,7 +102,7 @@ export function dnsCacheState(node: DNSCacheNode): DNSCacheState | null {
       label: "未知",
       title: "节点程序版本过旧，升级后显示",
       detail:
-        "节点程序版本过旧，不会上报 DNS 缓存状态。在「节点」页升级后显示。",
+        "节点程序版本过旧，不会上报 DNS 缓存状态。在「服务器」页升级后显示。",
       canFix: false,
       fixHint: "节点程序需升级",
       attention: false,

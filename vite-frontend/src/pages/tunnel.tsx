@@ -3695,7 +3695,7 @@ export default function TunnelPage() {
         </span>
         {isAdmin && sub.region === "" && (
           <span className="min-w-0 truncate text-xs font-normal text-default-500">
-            出口节点未设置地区，可在节点页设置
+            出口节点未设置地区，可在服务器页设置
           </span>
         )}
       </span>

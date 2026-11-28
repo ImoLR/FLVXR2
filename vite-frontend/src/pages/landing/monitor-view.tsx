@@ -1382,7 +1382,7 @@ export function LandingMonitorView({
         <Card>
           <CardBody className="py-12 text-center text-default-500">
             {data.admin
-              ? "暂无落地服务器。在「节点」页「启用为落地」或接入妙妙屋共享后会显示在这里。"
+              ? "暂无落地服务器。在「服务器」页「启用为落地」或接入妙妙屋共享后会显示在这里。"
               : "暂无可用的落地服务器，获授权后你的落地节点会显示在这里。"}
           </CardBody>
         </Card>

@@ -313,7 +313,7 @@ export function LeiKwanSettingsModal({
                 </div>
                 <p className="text-xs text-default-500">
                   每台入口机自己的首包合并值在「入口机」里看；加入口机 =
-                  在节点页把节点拉进分组「
+                  在服务器页把节点拉进分组「
                   {data.setting.entryGroupName || "利群入口"}」。
                 </p>
                 <div

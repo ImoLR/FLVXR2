@@ -196,7 +196,7 @@ export function useLeiKwanMemberGuard(
                 {lk?.name || "利群入口"}」后会离开那个旧分组。
               </p>
               <p className="text-xs text-default-500">
-                旧节点分组已经不在节点页显示，只有利群入口还用它。
+                旧节点分组已经不在服务器页显示，只有利群入口还用它。
               </p>
             </ModalBody>
             <ModalFooter>
@@ -495,7 +495,7 @@ export function NodeEditGroupPicker({
       </span>
       {groups.length === 0 ? (
         <span className="text-xs text-default-400">
-          还没有分组：在节点页点「管理分组」新建（和探针页同一套）。
+          还没有分组：在服务器页点「管理分组」新建（和探针页同一套）。
         </span>
       ) : (
         <div className="flex flex-wrap gap-1.5">

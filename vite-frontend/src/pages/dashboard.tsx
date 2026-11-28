@@ -1095,7 +1095,7 @@ export default function DashboardPage() {
             {nodeExpiryReminders.length > 6 && (
               <p className="mt-4 text-xs text-default-500">
                 还有 {nodeExpiryReminders.length - 6}{" "}
-                个节点未展开显示，可前往节点页面继续处理。
+                个节点未展开显示，可前往服务器页面继续处理。
               </p>
             )}
           </CardBody>

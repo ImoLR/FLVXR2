@@ -992,7 +992,7 @@ function LeiKwanRuleDialog({
           )}
           {opts && opts.landings.length === 0 && (
             <p className="-mt-2 text-xs text-default-500">
-              还没有自己的落地节点：先到「落地」页新建一个 SS2022
+              还没有自己的落地节点：先到「我的节点」页新建一个 SS2022
               节点（自己的密钥，别的转发用不了）。
             </p>
           )}

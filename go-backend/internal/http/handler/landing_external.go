@@ -149,6 +149,7 @@ var subFetcher = func(h *Handler) *landingsub.Fetcher {
 func (h *Handler) registerLandingExternal(mux *http.ServeMux) {
 	for path, fn := range map[string]http.HandlerFunc{
 		"external/list":       h.landingExternalList,
+		"tree":                h.landingTree,
 		"external/parse":      h.landingExternalParse,
 		"external/create":     h.limitMutation(mutationLanding, h.landingExternalCreate),
 		"external/rename":     h.limitMutation(mutationLanding, h.landingExternalRename),
@@ -411,6 +412,46 @@ func (h *Handler) landingExternalList(w http.ResponseWriter, r *http.Request) {
 		items = append(items, externalItemView(n, uses[n.ID], subUses[n.ID]))
 	}
 	response.WriteJSON(w, response.OK(map[string]interface{}{"items": items, "cap": cap, "count": len(nodes), "userId": owner}))
+}
+
+// landingTree (POST /api/v1/landing/tree, plan 327): what the 我的节点 tree
+// needs besides the landing / forward lists — the external nodes (name,
+// protocol, address; never credentials) and, per plan-108 线路机 chain
+// forward, the external node it was made from (0 = a pasted link that is not
+// in the list). Users get their own only; admins their own, or every user's
+// (with the owner names) when {"all": true}.
+func (h *Handler) landingTree(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		All bool `json:"all"`
+	}
+	_ = landingDecode(r, &req)
+	uid, role, err := userRoleFromRequest(r)
+	if err != nil {
+		response.WriteJSON(w, response.Err(401, "无效的token或token已过期"))
+		return
+	}
+	all := role == 0 && req.All
+	data, err := h.repo.LandingTreeData(uid, all)
+	if err != nil {
+		landingError(w, err)
+		return
+	}
+	externals := make([]map[string]interface{}, 0, len(data.Externals))
+	for _, x := range data.Externals {
+		v := map[string]interface{}{
+			"id": x.Node.ID, "userId": x.Node.UserID, "name": x.Node.Name, "protocol": x.Up.Type, "protocolLabel": x.Up.ProtocolLabel(),
+			"host": x.Node.Host, "port": x.Node.Port, "summary": x.Node.Summary,
+		}
+		if all {
+			v["userName"] = data.UserNames[x.Node.UserID]
+		}
+		externals = append(externals, v)
+	}
+	chains := make([]map[string]interface{}, 0, len(data.Chains))
+	for _, c := range data.Chains {
+		chains = append(chains, map[string]interface{}{"forwardId": c.ForwardID, "userId": c.UserID, "externalId": c.ExternalID})
+	}
+	response.WriteJSON(w, response.OK(map[string]interface{}{"externals": externals, "chains": chains, "all": all}))
 }
 
 func (h *Handler) landingExternalParse(w http.ResponseWriter, r *http.Request) {

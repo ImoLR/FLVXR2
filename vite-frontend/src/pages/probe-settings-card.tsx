@@ -374,7 +374,7 @@ export function ProbeSettingsCard({ enabled }: { enabled: boolean }) {
             </span>
             <span className="text-xs text-gray-400 dark:text-gray-500">
               在每台服务器上显示「月付 · 剩 12
-              天」这样的小标签（按节点的到期时间和续费周期，和节点页一样到期后自动顺延到下一期；按台湾时间算天数，只显示天数，不公开具体日期）
+              天」这样的小标签（按节点的到期时间和续费周期，和服务器页一样到期后自动顺延到下一期；按台湾时间算天数，只显示天数，不公开具体日期）
             </span>
           </div>
           <Switch

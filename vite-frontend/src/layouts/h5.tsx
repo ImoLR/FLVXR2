@@ -171,7 +171,8 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     },
     {
       path: "/landing",
-      label: "落地",
+      // Plan 327: 落地 → 我的节点 (path unchanged, old links keep working).
+      label: "我的节点",
       icon: (
         <svg
           aria-hidden="true"
@@ -212,7 +213,8 @@ export default function H5Layout({ children }: { children: React.ReactNode }) {
     },
     {
       path: "/node",
-      label: "节点",
+      // Plan 327: 节点 → 服务器 (path unchanged).
+      label: "服务器",
       adminOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">

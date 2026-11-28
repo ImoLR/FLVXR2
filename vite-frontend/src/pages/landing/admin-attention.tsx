@@ -102,7 +102,7 @@ export function serverAdminAttention(
         "vendor-unset",
         "warn",
         server.vendorFromNode
-          ? `未设置厂商：屏蔽本机厂商官网未生效，在节点页编辑节点「${server.vendorNodeName || server.name}」选择 VPS 厂商`
+          ? `未设置厂商：屏蔽本机厂商官网未生效，在服务器页编辑节点「${server.vendorNodeName || server.name}」选择 VPS 厂商`
           : "未设置厂商：屏蔽本机厂商官网未生效，在「出站与路由」里选择",
       );
   }
@@ -179,7 +179,7 @@ export function serverAdminAttention(
     add(
       "agent",
       "warn",
-      `节点程序版本过旧，${old.map(([name]) => name).join("、")}未生效：请在「节点」页升级这台服务器的节点程序`,
+      `节点程序版本过旧，${old.map(([name]) => name).join("、")}未生效：请在「服务器」页升级这台服务器的节点程序`,
       Array.from(new Set(old.map(([, section]) => section))),
     );
 
