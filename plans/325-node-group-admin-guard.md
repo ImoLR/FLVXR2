@@ -29,5 +29,5 @@ Released with 323 + 324 as fork.179 (release doc plan 326).
 - [x] Middleware: `/api/v1/node-group/` → admin only
 - [x] Contract test: normal user refused on list/create/update/delete/assign (nothing changed
       in DB), admin still OK, 利群入口 delete still refused for admin (SQLite + PG)
-- [ ] go vet + tests (SQLite all; PG contract for the new test)
-- [ ] Merge into fork.179 release branch (plan 326)
+- [x] go vet + tests (SQLite all; PG contract for the new test)
+- [x] Merge into fork.179 release branch (plan 326)
