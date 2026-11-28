@@ -3596,11 +3596,17 @@ export default function NodePage() {
                 />
               </div>
               {/* Plan 324: unified groups (探针 groups + 利群入口), multi-select */}
-              <NodeEditGroupPicker
-                groups={unifiedGroups}
-                selected={formGroupIds}
-                onToggle={toggleFormGroup}
-              />
+              {/* Remote (shared) nodes can't be in a group (same as the probe). */}
+              {!(
+                isEdit &&
+                nodeList.find((item) => item.id === form.id)?.isRemote === 1
+              ) && (
+                <NodeEditGroupPicker
+                  groups={unifiedGroups}
+                  selected={formGroupIds}
+                  onToggle={toggleFormGroup}
+                />
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Select
                   description="支持月、季、半年、年四种周期"
