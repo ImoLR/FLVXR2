@@ -907,6 +907,8 @@ export const ChartCard = memo(function ChartCard({
           {lines.map((l, i) => {
             const lv = data?.live?.[String(l.id)] ?? l.live;
             const fresh = lv && Date.now() / 1000 - lv.ts < 150;
+            // Plan 323: 端内 lines show the range 平均 (= the table's 平均), not the live value.
+            const endInAvg = isEndInLine(l) ? statsById.get(l.id)?.avg : null;
 
             return (
               <div
@@ -929,6 +931,19 @@ export const ChartCard = memo(function ChartCard({
                 </span>
                 {l.paused === 1 ? (
                   <Pill tone="slate">已暂停</Pill>
+                ) : endInAvg != null && Number.isFinite(endInAvg) ? (
+                  <Pill
+                    title={`所选时间段平均${
+                      !fresh
+                        ? ""
+                        : lv.status === 1 || lv.status === 2
+                          ? `，当前 ${fmtMs(lv.ms)}`
+                          : `，当前${statusText(lv.status)}${lv.reason ? `·${lv.reason}` : ""}`
+                    }`}
+                    tone={fresh ? liveTone(lv.status) : "slate"}
+                  >
+                    平均 {fmtMs(endInAvg)}
+                  </Pill>
                 ) : fresh ? (
                   <Pill
                     className={liveClass(lv.status)}

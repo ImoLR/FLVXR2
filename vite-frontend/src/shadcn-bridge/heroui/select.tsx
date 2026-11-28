@@ -218,6 +218,61 @@ function textSizeClass(size: SelectProps["size"]) {
   return "text-sm";
 }
 
+/**
+ * Plan 323: the vertical band (viewport ∩ `from` and every clipping ancestor of it) that content
+ * positioned inside `from` can actually show. A fixed-position box ends the chain (nothing above
+ * it clips its content). `null` = the viewport.
+ */
+function visibleBand(from: HTMLElement | null) {
+  let top = 0;
+  let bottom = window.innerHeight;
+
+  for (
+    let node = from;
+    node && node !== document.body && node !== document.documentElement;
+    node = node.parentElement
+  ) {
+    const style = window.getComputedStyle(node);
+
+    if (style.overflowY !== "visible") {
+      const box = node.getBoundingClientRect();
+
+      top = Math.max(top, box.top + node.clientTop);
+      bottom = Math.min(bottom, box.top + node.clientTop + node.clientHeight);
+    }
+    if (style.position === "fixed") break;
+  }
+
+  return { top, bottom };
+}
+
+/** The box a `position: fixed` element inside `el` is placed in (null = the viewport). */
+function fixedContainingBlock(el: HTMLElement) {
+  for (
+    let node = el.parentElement;
+    node && node !== document.body && node !== document.documentElement;
+    node = node.parentElement
+  ) {
+    const s = window.getComputedStyle(node);
+
+    if (
+      s.transform !== "none" ||
+      s.translate !== "none" ||
+      s.scale !== "none" ||
+      s.rotate !== "none" ||
+      s.perspective !== "none" ||
+      s.filter !== "none" ||
+      s.backdropFilter !== "none" ||
+      /paint|layout|strict|content/.test(s.contain) ||
+      /transform|perspective|filter/.test(s.willChange) ||
+      (s.containerType && s.containerType !== "normal")
+    )
+      return node;
+  }
+
+  return null;
+}
+
 function focusGroupedOption(
   listbox: HTMLDivElement | null,
   option?: HTMLButtonElement | null,
@@ -276,6 +331,8 @@ export function Select<T>({
   const searchRef = React.useRef<HTMLInputElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
   const groupedFocusLast = React.useRef(false);
+  // Plan 323: the grouped listbox opened on the other side of the trigger (more room there).
+  const [groupedFlipped, setGroupedFlipped] = React.useState(false);
   const visibleOptions = React.useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
 
@@ -293,28 +350,104 @@ export function Select<T>({
     if (!isExpanded) setSearch("");
   }, [isExpanded, showSearch]);
   React.useLayoutEffect(() => {
-    if (!isExpanded || !isGrouped) return;
+    if (!isExpanded || !isGrouped) {
+      setGroupedFlipped(false);
+
+      return;
+    }
     const resizeListbox = () => {
       const trigger = triggerRef.current;
       const listbox = listboxRef.current;
+      const container = containerRef.current;
 
-      if (!trigger || !listbox) return;
+      if (!trigger || !listbox || !container) return;
+      const scrollTop = listbox.scrollTop;
+
+      // back to the CSS layout (absolute under the trigger, or in flow) to measure it
+      Object.assign(listbox.style, {
+        position: "",
+        margin: "",
+        top: "",
+        bottom: "",
+        left: "",
+        width: "",
+      });
+      // an in-flow list (classNames.listbox "static", landing pickers) has nothing to place
+      if (window.getComputedStyle(listbox).position !== "absolute") return;
       const bounds = trigger.getBoundingClientRect();
-      const dialog = trigger.closest('[role="dialog"]')?.getBoundingClientRect();
-      const available = dropdownPlacement === "top"
-        ? bounds.top - Math.max(0, dialog?.top ?? 0) - 8
-        : Math.min(window.innerHeight, dialog?.bottom ?? window.innerHeight) - bounds.bottom - 8;
+      // Plan 323: inside a dialog the list is pinned with `position: fixed` where the CSS put it
+      // (same left / width), so the dialog's scrolling body — which ends above the footer — no
+      // longer clips it; it may cover the footer like any dropdown. Elsewhere it stays absolute.
+      // Either way the room is measured to the clip that really applies, not to the dialog box.
+      const inDialog = !!container.closest('[role="dialog"]');
 
-      listbox.style.maxHeight = `${Math.max(0, Math.min(window.innerHeight * 0.6, 384, available))}px`;
+      if (inDialog) {
+        const own = visibleBand(container.parentElement);
+
+        // the trigger was scrolled out of sight → close instead of floating over the header
+        if (bounds.bottom <= own.top || bounds.top >= own.bottom) {
+          setIsExpanded(false);
+
+          return;
+        }
+      }
+      const band = inDialog
+        ? visibleBand(fixedContainingBlock(container))
+        : visibleBand(container.parentElement);
+      const below = band.bottom - bounds.bottom - 8;
+      const above = bounds.top - band.top - 8;
+      const cap = Math.min(window.innerHeight * 0.6, 384);
+      const needed = Math.min(
+        cap,
+        listbox.scrollHeight + listbox.offsetHeight - listbox.clientHeight,
+      );
+      const preferred = dropdownPlacement === "top" ? above : below;
+      const other = dropdownPlacement === "top" ? below : above;
+      // Too short on the preferred side (less than the list and than ~3 rows) and more room on the
+      // other → open there. Either way the side's room caps the height, so the list scrolls inside
+      // itself instead of running under the clip; lists that fitted (or just scrolled) stay as is.
+      const flip = preferred < Math.min(needed, 200) && other > preferred;
+
+      listbox.style.maxHeight = `${Math.max(0, Math.min(cap, flip ? other : preferred))}px`;
+      if (inDialog) {
+        const css = listbox.getBoundingClientRect();
+        const up = (dropdownPlacement === "top") !== flip;
+
+        Object.assign(listbox.style, {
+          position: "fixed",
+          margin: "0",
+          top: "0px",
+          bottom: "auto",
+          left: "0px",
+          width: `${css.width}px`,
+        });
+        // place by measuring where top/left 0 lands (the dialog's transform makes it the origin)
+        const origin = listbox.getBoundingClientRect();
+        const top = up ? bounds.top - 4 - origin.height : bounds.bottom + 4;
+
+        listbox.style.top = `${top - origin.top}px`;
+        listbox.style.left = `${css.left - origin.left}px`;
+      }
+      listbox.scrollTop = scrollTop;
+      setGroupedFlipped(flip);
+    };
+    // scrolling the list itself changes nothing outside it
+    const onScroll = (event: Event) => {
+      if (
+        event.target instanceof Node &&
+        listboxRef.current?.contains(event.target)
+      )
+        return;
+      resizeListbox();
     };
 
     resizeListbox();
     window.addEventListener("resize", resizeListbox);
-    window.addEventListener("scroll", resizeListbox, true);
+    window.addEventListener("scroll", onScroll, true);
 
     return () => {
       window.removeEventListener("resize", resizeListbox);
-      window.removeEventListener("scroll", resizeListbox, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   }, [isExpanded, isGrouped, dropdownPlacement]);
   React.useEffect(() => {
@@ -473,8 +606,9 @@ export function Select<T>({
       return null;
     }
 
-    const placementClasses =
-      dropdownPlacement === "top" ? "bottom-full mb-1" : "top-full mt-1";
+    const openUp =
+      (dropdownPlacement === "top") !== (isGrouped && groupedFlipped);
+    const placementClasses = openUp ? "bottom-full mb-1" : "top-full mt-1";
 
     return (
       <div
