@@ -98,3 +98,5 @@ gets a marker on its tab.
   swap; the extra config row is ignored by fork.178.
 - Not done on purpose: `/api/v1/node-group/*` still has no admin check in the middleware
   (pre-existing; the brief allowed only the delete guard) — worth a follow-up.
+
+**Released:** fork.179, 2026-11-28 19:50 TW (release doc plan 326).

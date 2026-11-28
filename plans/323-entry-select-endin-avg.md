@@ -83,3 +83,5 @@ he wants it to show the table's 「平均」 (mean of the selected range, `LineS
   same.
 - Release: batch with the next FLVX release (user 11-28 「先别发布，到时等几个一起发布」); panel
   image only.
+
+**Released:** fork.179, 2026-11-28 19:50 TW (release doc plan 326).

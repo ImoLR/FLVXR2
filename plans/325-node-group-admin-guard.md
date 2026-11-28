@@ -31,3 +31,5 @@ Released with 323 + 324 as fork.179 (release doc plan 326).
       in DB), admin still OK, 利群入口 delete still refused for admin (SQLite + PG)
 - [x] go vet + tests (SQLite all; PG contract for the new test)
 - [x] Merge into fork.179 release branch (plan 326)
+
+**Released:** fork.179, 2026-11-28 19:50 TW (release doc plan 326).
