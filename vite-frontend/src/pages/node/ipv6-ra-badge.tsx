@@ -20,12 +20,19 @@ const states = {
   error: { label: "IPv6 需处理", color: "danger", className: "text-danger" },
 } as const;
 
-export function NodeIPv6RABadge({ node }: { node: IPv6RAReport }) {
+/** The badge the card shows (null = none); plan 324 group markers use it too. */
+export function ipv6RaBadgeState(node: IPv6RAReport) {
   const status = node.ipv6RaStatus;
 
   if (status !== "ok" && status !== "warn" && status !== "error") return null;
 
-  const state = states[status];
+  return states[status];
+}
+
+export function NodeIPv6RABadge({ node }: { node: IPv6RAReport }) {
+  const state = ipv6RaBadgeState(node);
+
+  if (!state) return null;
   const checked = node.ipv6RaCheckedAt
     ? new Date(node.ipv6RaCheckedAt).toLocaleString("zh-CN", { hour12: false })
     : "暂无记录";

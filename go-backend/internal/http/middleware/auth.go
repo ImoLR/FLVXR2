@@ -185,6 +185,13 @@ func requiresAdmin(path string) bool {
 		return true
 	}
 
+	// Plan 325: the old node-group API (list/create/update/delete/assign) is
+	// only used by the admin 节点 page; "/api/v1/node-group/" does not match
+	// the "/api/v1/node/" prefix above.
+	if strings.HasPrefix(path, "/api/v1/node-group/") {
+		return true
+	}
+
 	if strings.HasPrefix(path, "/api/v1/speed-limit/") {
 		return true
 	}

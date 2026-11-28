@@ -1,6 +1,6 @@
 import type { ProbeAdminGroup, ProbeGroupMode } from "@/api/probe-admin";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import toast from "react-hot-toast";
 
 import {
@@ -25,6 +25,9 @@ import {
 // Plan 189 设置 → 公开探针页 → 探针分组: the group list (add / rename / delete
 // with confirm / move up-down), the 默认分组方式 switch and the per-machine
 // multi-select. Changes stay local until 「保存探针设置」.
+// Plan 324: the 节点 page 「管理分组」 reuses the same editor (same groups) with
+// a locked 利群入口 row (rename / move only), a member editor under each row
+// and no 默认分组方式 switch; the probe card passes none of those props.
 
 export const PROBE_GROUPS_MAX = 30;
 export const PROBE_GROUP_NAME_MAX = 20;
@@ -51,7 +54,7 @@ const SMALL =
   "rounded-full px-2.5 py-1 text-xs font-semibold transition-colors disabled:pointer-events-none disabled:opacity-40";
 
 /** Trimmed name, or an error message (same rules as the panel). */
-function checkName(
+export function checkName(
   raw: string,
   groups: ProbeAdminGroup[],
   selfId?: number,
@@ -69,20 +72,48 @@ function checkName(
   return name;
 }
 
+/** Plan 324: a row that can be renamed / moved but not deleted. */
+export interface LockedGroupRow {
+  id: number;
+  badge: ReactNode;
+  note: string;
+  deleteHint: string;
+  tone?: string;
+}
+
 export function ProbeGroupsEditor({
   groups,
   mode,
   shownIds,
   onGroups,
   onMode,
+  title = "探针分组",
+  description = "除了按地区，还可以自己建分组（例如「IXP」「三网优化」），一台服务器可以同时在多个分组里。在下面的服务器列表里给每台选分组。",
+  saveHint = "点「保存探针设置」后生效。",
+  countOf,
+  locked,
+  renderRowExtra,
 }: {
   groups: ProbeAdminGroup[];
-  mode: ProbeGroupMode;
+  mode?: ProbeGroupMode;
   /** Machines shown on the probe (counts exclude hidden ones). */
-  shownIds: Set<number>;
+  shownIds?: Set<number>;
   onGroups: (next: ProbeAdminGroup[]) => void;
-  onMode: (mode: ProbeGroupMode) => void;
+  /** Omitted = no 默认分组方式 switch (节点 page). */
+  onMode?: (mode: ProbeGroupMode) => void;
+  title?: string;
+  description?: ReactNode;
+  saveHint?: string;
+  countOf?: (g: ProbeAdminGroup) => number;
+  locked?: LockedGroupRow | null;
+  renderRowExtra?: (g: ProbeAdminGroup) => ReactNode;
 }) {
+  // The locked row (利群入口) does not count towards the 30 probe groups.
+  const own = locked
+    ? groups.filter((g) => g.id !== locked.id).length
+    : groups.length;
+  const toneOf = (g: ProbeAdminGroup) =>
+    locked && g.id === locked.id && locked.tone ? locked.tone : groupTone(g.id);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(
     null,
@@ -92,7 +123,7 @@ export function ProbeGroupsEditor({
   );
 
   const add = () => {
-    if (groups.length >= PROBE_GROUPS_MAX) {
+    if (own >= PROBE_GROUPS_MAX) {
       toast.error("探针分组最多 30 个");
 
       return;
@@ -139,20 +170,23 @@ export function ProbeGroupsEditor({
       <div className="mb-2 flex items-start justify-between gap-3 text-sm">
         <div className="flex flex-col">
           <span className="font-semibold text-gray-700 dark:text-gray-300">
-            探针分组
+            {title}
           </span>
           <span className="text-xs text-gray-400 dark:text-gray-500">
-            除了按地区，还可以自己建分组（例如「IXP」「三网优化」），一台服务器可以同时在多个分组里。在下面的服务器列表里给每台选分组。
+            {description}
           </span>
         </div>
         <span className="shrink-0 text-xs text-gray-400">
-          {groups.length} / {PROBE_GROUPS_MAX}
+          {own} / {PROBE_GROUPS_MAX}
         </span>
       </div>
       <div className="rounded-lg border border-divider">
         {groups.map((g, i) => {
-          const count = g.nodes.filter((id) => shownIds.has(id)).length;
+          const count = countOf
+            ? countOf(g)
+            : g.nodes.filter((id) => shownIds?.has(id) ?? true).length;
           const isEditing = editing?.id === g.id;
+          const isLocked = !!locked && g.id === locked.id;
 
           return (
             <div
@@ -180,8 +214,9 @@ export function ProbeGroupsEditor({
                   }}
                 />
               ) : (
-                <span className={`${CHIP} ${groupTone(g.id)}`}>{g.name}</span>
+                <span className={`${CHIP} ${toneOf(g)}`}>{g.name}</span>
               )}
+              {isLocked && locked.badge}
               <span className="text-xs text-default-500">
                 {count === 0 ? "还没有服务器" : `${count} 台`}
               </span>
@@ -231,15 +266,38 @@ export function ProbeGroupsEditor({
                       改名
                     </button>
                     <button
-                      className={`${SMALL} bg-red-500/15 text-red-700 hover:bg-red-500/25 dark:bg-red-400/20 dark:text-red-300`}
+                      aria-disabled={isLocked}
+                      className={`${SMALL} bg-red-500/15 text-red-700 hover:bg-red-500/25 dark:bg-red-400/20 dark:text-red-300 ${isLocked ? "cursor-not-allowed opacity-40 hover:bg-red-500/15" : ""}`}
+                      data-locked-delete={isLocked ? "true" : undefined}
+                      title={isLocked ? locked.deleteHint : undefined}
                       type="button"
-                      onClick={() => setConfirmDelete(g)}
+                      onClick={() => {
+                        if (isLocked) {
+                          toast.error(locked.deleteHint);
+
+                          return;
+                        }
+                        setConfirmDelete(g);
+                      }}
                     >
                       删除
                     </button>
                   </>
                 )}
               </div>
+              {isLocked && (
+                <p
+                  className="basis-full pl-7 text-[11px] leading-5 text-teal-700 dark:text-teal-300"
+                  data-locked-note="true"
+                >
+                  {locked.note}
+                  <span className="text-default-500">
+                    {" "}
+                    · {locked.deleteHint}
+                  </span>
+                </p>
+              )}
+              {renderRowExtra?.(g)}
             </div>
           );
         })}
@@ -247,10 +305,10 @@ export function ProbeGroupsEditor({
           <input
             aria-label="新分组名称"
             className="h-8 w-0 min-w-0 flex-1 rounded-md border border-divider bg-transparent px-2 text-sm outline-none placeholder:text-default-400 focus:border-teal-500 sm:max-w-xs"
-            disabled={groups.length >= PROBE_GROUPS_MAX}
+            disabled={own >= PROBE_GROUPS_MAX}
             maxLength={PROBE_GROUP_NAME_MAX}
             placeholder={
-              groups.length >= PROBE_GROUPS_MAX
+              own >= PROBE_GROUPS_MAX
                 ? "已到 30 个上限"
                 : "新分组名称，例如 IXP"
             }
@@ -262,7 +320,7 @@ export function ProbeGroupsEditor({
           />
           <Button
             color="success"
-            isDisabled={!newName.trim() || groups.length >= PROBE_GROUPS_MAX}
+            isDisabled={!newName.trim() || own >= PROBE_GROUPS_MAX}
             size="sm"
             variant="flat"
             onPress={add}
@@ -271,38 +329,40 @@ export function ProbeGroupsEditor({
           </Button>
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-            默认分组方式
-          </span>
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            访客第一次打开探针页时的查看方式，访客可以自己切换。没有分组时总是按地区。
-          </span>
+      {onMode && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              默认分组方式
+            </span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              访客第一次打开探针页时的查看方式，访客可以自己切换。没有分组时总是按地区。
+            </span>
+          </div>
+          <div
+            aria-label="默认分组方式"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 p-0.5 dark:bg-slate-400/10"
+            role="group"
+          >
+            {(
+              [
+                ["region", "按地区"],
+                ["group", "按自定义分组"],
+              ] as const
+            ).map(([v, t]) => (
+              <button
+                key={v}
+                aria-pressed={mode === v}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${mode === v ? "bg-teal-500/20 text-teal-700 dark:bg-teal-400/20 dark:text-teal-200" : "text-default-500 hover:text-foreground"}`}
+                type="button"
+                onClick={() => onMode(v)}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
-        <div
-          aria-label="默认分组方式"
-          className="flex shrink-0 items-center gap-1 rounded-full bg-slate-500/10 p-0.5 dark:bg-slate-400/10"
-          role="group"
-        >
-          {(
-            [
-              ["region", "按地区"],
-              ["group", "按自定义分组"],
-            ] as const
-          ).map(([v, t]) => (
-            <button
-              key={v}
-              aria-pressed={mode === v}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${mode === v ? "bg-teal-500/20 text-teal-700 dark:bg-teal-400/20 dark:text-teal-200" : "text-default-500 hover:text-foreground"}`}
-              type="button"
-              onClick={() => onMode(v)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
       <Modal
         isOpen={!!confirmDelete}
@@ -316,7 +376,7 @@ export function ProbeGroupsEditor({
           <ModalBody>
             <p className="text-sm">确定删除分组「{confirmDelete?.name}」吗？</p>
             <p className="text-xs text-default-500">
-              其中的服务器只是移出这个分组，不会被隐藏或删除。点「保存探针设置」后生效。
+              其中的服务器只是移出这个分组，不会被隐藏或删除。{saveHint}
             </p>
           </ModalBody>
           <ModalFooter>

@@ -117,9 +117,8 @@ interface NodeListViewProps {
   handleEdit: (node: Node) => void;
   handleDelete: (node: Node) => void;
   formatTraffic: (bytes: number) => string;
-  nodeGroups: any[];
-  filterGroupId: number | null;
-  setFilterGroupId: (id: number | null) => void;
+  /** Plan 324: the node's group chip(s) (same as the card). */
+  groupChips: (node: Node) => React.ReactNode;
   handleDismissExpiryReminder?: (nodeId: number) => void;
   // 新增三种对接方式的处理函数
   handleCopyOverseasInstallCommand?: (node: Node) => void;
@@ -152,7 +151,7 @@ function SortableTableRow({
   handleEdit,
   handleDelete,
   formatTraffic,
-  nodeGroups,
+  groupChips,
   handleDismissExpiryReminder,
   handleCopyOverseasInstallCommand,
   handleCopyOfflineInstallCommand,
@@ -277,6 +276,7 @@ function SortableTableRow({
       key={node.id}
       ref={setNodeRef}
       className="cursor-default"
+      data-node-anchor={node.id}
       data-selected={treeLine && selectedIds.has(node.id) ? "" : undefined}
       style={style}
     >
@@ -355,31 +355,7 @@ function SortableTableRow({
         ) : null}
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg}`}>
-        {node.groupId && node.groupId > 0 ? (
-          (() => {
-            const group = nodeGroups.find((g: any) => g.id == node.groupId);
-
-            return group ? (
-              <div
-                className="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium"
-                style={{
-                  backgroundColor: `${group.color}1A`,
-                  color: group.color,
-                }}
-              >
-                {group.name}
-              </div>
-            ) : (
-              <div className="inline-flex items-center justify-center bg-default-500/10 text-default-500 px-2 py-0.5 rounded text-xs font-medium">
-                未分组
-              </div>
-            );
-          })()
-        ) : (
-          <div className="inline-flex items-center justify-center bg-default-500/10 text-default-500 px-2 py-0.5 rounded text-xs font-medium">
-            未分组
-          </div>
-        )}
+        {groupChips(node)}
       </TableCell>
       <TableCell className={`whitespace-nowrap ${rowBg} align-middle`}>
         <div className="flex flex-col gap-1 min-w-[160px] py-1">
@@ -814,9 +790,7 @@ export function NodeListView({
   handleEdit,
   handleDelete,
   formatTraffic,
-  nodeGroups,
-  filterGroupId,
-  setFilterGroupId,
+  groupChips,
   handleDismissExpiryReminder,
   handleCopyOverseasInstallCommand,
   handleCopyOfflineInstallCommand,
@@ -876,65 +850,7 @@ export function NodeListView({
             </span>
           </TableColumn>
           <TableColumn className="whitespace-nowrap flex-shrink-0 w-[120px] text-left">
-            <Select
-              aria-label="按分组筛选"
-              className="w-full min-w-[100px]"
-              classNames={{
-                trigger:
-                  "bg-transparent border-none shadow-none p-0 min-h-0 h-auto gap-1.5 hover:bg-default-100/50 transition-colors flex flex-row-reverse justify-end items-center",
-                value:
-                  "text-sm text-default-600 font-semibold uppercase tracking-wider p-0",
-                selectorIcon: "text-default-400 w-3.5 h-3.5 static m-0",
-                innerWrapper: "w-fit flex-none",
-                placeholder:
-                  "text-sm text-default-600 font-semibold uppercase tracking-wider",
-              }}
-              placeholder="节点分组"
-              selectedKeys={
-                filterGroupId === null
-                  ? []
-                  : filterGroupId === -1
-                    ? ["none"]
-                    : [String(filterGroupId)]
-              }
-              size="sm"
-              variant="flat"
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string | undefined;
-
-                if (!selected || selected === "all") {
-                  setFilterGroupId(null);
-                } else if (selected === "none") {
-                  setFilterGroupId(-1);
-                } else {
-                  setFilterGroupId(parseInt(selected));
-                }
-              }}
-            >
-              <SelectItem key="all" textValue="全部分组">
-                全部分组
-              </SelectItem>
-              <SelectItem key="none" textValue="未分组">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full bg-gray-300 flex-shrink-0" />
-                  <span>未分组</span>
-                </div>
-              </SelectItem>
-              {nodeGroups.map((group) => (
-                <SelectItem key={group.id.toString()} textValue={group.name}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: group.color }}
-                    />
-                    <span className="truncate">{group.name}</span>
-                    <span className="text-default-400 text-xs ml-auto">
-                      {group.nodeCount}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
-            </Select>
+            分组
           </TableColumn>
           <TableColumn className="whitespace-nowrap flex-shrink-0 w-[200px] text-left">
             地址
@@ -1009,7 +925,6 @@ export function NodeListView({
                     size="sm"
                     variant="flat"
                     onPress={() => {
-                      setFilterGroupId(null);
                       setNodeFilterMode?.("all");
                     }}
                   >
@@ -1035,7 +950,7 @@ export function NodeListView({
                   handleEdit,
                   handleDelete,
                   formatTraffic,
-                  nodeGroups,
+                  groupChips,
                   handleDismissExpiryReminder,
                   handleCopyOverseasInstallCommand,
                   handleCopyOfflineInstallCommand,

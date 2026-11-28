@@ -136,3 +136,20 @@ export const formatNodeRenewalTime = (timestamp?: number): string => {
 
   return new Date(timestamp).toLocaleDateString();
 };
+
+/** Days before a renewal the card turns amber (「7 天内续费」). */
+export const NODE_EXPIRING_SOON_DAYS = 7;
+
+/**
+ * Dismissed = expiry_reminder_dismissed, limited by dismissed-until when set
+ * (plan 196: 「已续费」 in Telegram lasts until that cycle's due date).
+ */
+export const isNodeExpiryReminderDismissed = (node: {
+  expiryReminderDismissed?: number;
+  expiryReminderDismissedUntil?: number | null;
+}): boolean =>
+  node.expiryReminderDismissed === 1 &&
+  !(
+    node.expiryReminderDismissedUntil &&
+    node.expiryReminderDismissedUntil * 1000 < Date.now()
+  );
