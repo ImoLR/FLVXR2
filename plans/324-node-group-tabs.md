@@ -52,8 +52,9 @@ gets a marker on its tab.
 - 利群 group position among the probe groups: `vite_config.node_page_leikwan_pos`
   (index; missing → last). Not in `probe_groups`, so the probe output cannot contain it
   and an older panel (rollback) ignores it.
-- Drag sorting: works in 综合 as before; disabled inside a group tab / while searching
-  (the drag handle is hidden there) — the global order is kept as is.
+- Drag sorting: keeps working inside a group tab. The existing handler already re-sequences
+  the shown subset inside its own slots of the global order (same as with a search), so
+  dragging in a tab only swaps that group's machines among themselves.
 - Card / list 「分组」 chip: it showed the old node_group name; it now shows the node's
   unified groups (first + 「+N」), same pill shape; 「未分组」 when none.
 - Remove guard blocks: 主入口 of a 利群 grant (user + their 专线), the old 主入口 during the
@@ -63,18 +64,37 @@ gets a marker on its tab.
 
 ## Tasks
 - [x] Investigate both group systems, 利群 dependency, node update, probe `old`
-- [ ] Backend: `node_groups_page.go` GET + save (merge stored `old`, validation, 利群 rename /
+- [x] Backend: `node_groups_page.go` GET + save (merge stored `old`, validation, 利群 rename /
       members / position, remove guard), repo method for the 利群 member change (transaction)
-- [ ] Backend: node_group delete refuses the current entry group
-- [ ] Backend tests: delete refusal, rename, add / remove guard (grant / grace), probe output
+- [x] Backend: node_group delete refuses the current entry group
+- [x] Backend tests: delete refusal, rename, add / remove guard (grant / grace), probe output
       never has the 利群 group, `old` kept, other probe settings untouched
-- [ ] Frontend: API client + `nodeGroupAttention` helper (rule list in one place)
-- [ ] Frontend: tab bar (desktop + H5 scroll strip), counts, markers + popover, 其他, search → 综合
-- [ ] Frontend: 管理分组 modal (shared editor + member picker + 利群 row rules, guard message)
-- [ ] Frontend: remove old 分组 manager / accordion view / list filter; view toggle 卡片 ↔ 列表
-- [ ] Frontend: node edit dialog multi-select (unified groups, 利群 via the same guard)
-- [ ] Frontend: card / list chip shows unified groups
-- [ ] `go test ./...`, `npm run build`, tsc / lint as CI
-- [ ] Lab (fake data ≥ 10 groups incl. 利群入口, offline / amber / clean / 其他) + screenshots
+- [x] Frontend: API client + `nodeGroupAttention` helper (rule list in one place)
+- [x] Frontend: tab bar (desktop + H5 scroll strip), counts, markers + popover, 其他, search → 综合
+- [x] Frontend: 管理分组 modal (shared editor + member picker + 利群 row rules, guard message)
+- [x] Frontend: remove old 分组 manager / accordion view / list filter; view toggle 卡片 ↔ 列表
+- [x] Frontend: node edit dialog multi-select (unified groups, 利群 via the same guard)
+- [x] Frontend: card / list chip shows unified groups
+- [x] `go test ./...`, `npm run build`, tsc / lint as CI
+- [x] Lab (fake data ≥ 10 groups incl. 利群入口, offline / amber / clean / 其他) + screenshots
       desktop + 390 px, light + dark; index at /root/mmwx-preview/node-group-tabs/
-- [ ] Push branch, CI green; ledger row 324; summary
+- [x] Push branch, CI green; ledger row 324; summary
+
+## Results (2026-11-28, build only)
+- Commits on `feature/3.0.27-324-node-group-tabs`: 748b6e71 (backend API + guards + contract
+  test), 9cb1b5d4 (frontend), 9c1357a3 (marker colours / phone strip / jump ring / guard text),
+  5fe39d82 (no group picker for remote nodes) = head. CI Build Check 46128936926 green.
+- `go test ./...` (SQLite) all ok; `TestNodeGroupTabsContract` + `TestProbeGroupsContract` +
+  `TestProbeOldPanelContract` also on PostgreSQL 18 ok. `tsc` + `npm run build` ok; eslint clean on
+  the new files (node.tsx / node-list-view.tsx keep their pre-existing a11y errors: 7 / 6, same as base).
+- Merge dry run with plan 323 (`feature/3.0.27-323-entry-select-endin-avg`): clean.
+- Lab (`runs/node-group-tabs/lab`, netns, synthetic data, 33 nodes, 10 groups incl. 利群入口,
+  agents simulated via a mocked realtime socket): 44/44 checks; 30 screenshots desktop + 390 px,
+  light + dark: http://104.145.236.29:8791/node-group-tabs/
+- New: `vite_config.node_page_leikwan_pos` (written on the first node-page save; no DB migration).
+  New endpoints `POST /api/v1/node/groups`, `/api/v1/node/groups/save` (admin). `node-group/delete`
+  refuses the current 利群 entry group.
+- Release needs: panel only (backend + frontend image), no OTA, no DB migration. Rollback = image
+  swap; the extra config row is ignored by fork.178.
+- Not done on purpose: `/api/v1/node-group/*` still has no admin check in the middleware
+  (pre-existing; the brief allowed only the delete guard) — worth a follow-up.
